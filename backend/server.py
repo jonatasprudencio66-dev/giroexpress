@@ -190,6 +190,37 @@ def require_roles(*roles):
         return user
     return dep
 
+def oid(v: str) -> ObjectId:
+    try:
+        return ObjectId(v)
+    except Exception:
+        raise HTTPException(400, "ID inválido")
+
+# Brute force protection
+LOCKOUT_MAX = 5
+LOCKOUT_MIN = 15
+
+async def check_lockout(identifier: str):
+    rec = await db.login_attempts.find_one({"_id": identifier})
+    if not rec:
+        return
+    if rec.get("locked_until"):
+        locked = datetime.fromisoformat(rec["locked_until"])
+        if datetime.now(timezone.utc) < locked:
+            raise HTTPException(429, f"Muitas tentativas. Tente novamente em alguns minutos.")
+
+async def register_failed(identifier: str):
+    rec = await db.login_attempts.find_one({"_id": identifier}) or {"count": 0}
+    count = rec.get("count", 0) + 1
+    upd = {"count": count, "last_at": now_iso()}
+    if count >= LOCKOUT_MAX:
+        upd["locked_until"] = (datetime.now(timezone.utc) + timedelta(minutes=LOCKOUT_MIN)).isoformat()
+        upd["count"] = 0
+    await db.login_attempts.update_one({"_id": identifier}, {"$set": upd}, upsert=True)
+
+async def clear_attempts(identifier: str):
+    await db.login_attempts.delete_one({"_id": identifier})
+
 def current_cycle_bounds(now: datetime = None):
     now = now or datetime.now(timezone.utc)
     days_since_sunday = (now.weekday() + 1) % 7
@@ -326,13 +357,19 @@ async def register(body: RegisterIn, response: Response):
     return {"user": user_to_public(doc), "access_token": access}
 
 @api.post("/auth/login")
-async def login(body: LoginIn, response: Response):
+async def login(body: LoginIn, request: Request, response: Response):
     email = body.email.lower()
+    xff = request.headers.get("x-forwarded-for", "")
+    ip = xff.split(",")[0].strip() if xff else (request.client.host if request.client else "unknown")
+    ident = f"{ip}:{email}"
+    await check_lockout(ident)
     u = await db.users.find_one({"email": email})
     if not u or not verify_password(body.password, u["password_hash"]):
+        await register_failed(ident)
         raise HTTPException(401, "E-mail ou senha inválidos")
     if u.get("status") == "blocked":
         raise HTTPException(403, "Conta bloqueada. Contate o administrador.")
+    await clear_attempts(ident)
     access = make_access(str(u["_id"]), email, u["role"])
     refresh = make_refresh(str(u["_id"]))
     set_auth_cookies(response, access, refresh)
@@ -452,7 +489,10 @@ async def list_deliveries(status: Optional[str] = None, user: dict = Depends(get
     if role == "store":
         q["store_id"] = uid
     elif role == "courier":
-        if status == "available":
+        if user.get("status") != "active":
+            # pending/blocked couriers only see their own history, no available leaks
+            q["courier_id"] = uid
+        elif status == "available":
             q = {"status": "pending", "courier_id": None}
         else:
             q["$or"] = [{"courier_id": uid}, {"status": "pending", "courier_id": None}]
@@ -464,7 +504,7 @@ async def list_deliveries(status: Optional[str] = None, user: dict = Depends(get
 @api.get("/deliveries/{delivery_id}")
 async def get_delivery(delivery_id: str, user: dict = Depends(get_current_user)):
     try:
-        d = await db.deliveries.find_one({"_id": ObjectId(delivery_id)})
+        d = await db.deliveries.find_one({"_id": oid(delivery_id)})
     except Exception:
         raise HTTPException(400, "Invalid id")
     if not d:
@@ -481,7 +521,7 @@ async def accept_delivery(delivery_id: str, user: dict = Depends(require_roles("
         raise HTTPException(403, "Sua conta ainda não foi aprovada pelo administrador.")
     if not user.get("online"):
         raise HTTPException(400, "Fique online para aceitar corridas.")
-    d = await db.deliveries.find_one({"_id": ObjectId(delivery_id)})
+    d = await db.deliveries.find_one({"_id": oid(delivery_id)})
     if not d:
         raise HTTPException(404, "Not found")
     if d.get("status") != "pending":
@@ -497,7 +537,7 @@ async def accept_delivery(delivery_id: str, user: dict = Depends(require_roles("
 
 @api.post("/deliveries/{delivery_id}/start")
 async def start_delivery(delivery_id: str, user: dict = Depends(require_roles("courier"))):
-    d = await db.deliveries.find_one({"_id": ObjectId(delivery_id)})
+    d = await db.deliveries.find_one({"_id": oid(delivery_id)})
     if not d or d.get("courier_id") != str(user["_id"]):
         raise HTTPException(403, "Forbidden")
     if d.get("status") != "accepted":
@@ -508,7 +548,7 @@ async def start_delivery(delivery_id: str, user: dict = Depends(require_roles("c
 
 @api.post("/deliveries/{delivery_id}/complete")
 async def complete_delivery(delivery_id: str, user: dict = Depends(require_roles("courier"))):
-    d = await db.deliveries.find_one({"_id": ObjectId(delivery_id)})
+    d = await db.deliveries.find_one({"_id": oid(delivery_id)})
     if not d or d.get("courier_id") != str(user["_id"]):
         raise HTTPException(403, "Forbidden")
     if d.get("status") not in ("accepted", "in_transit"):
@@ -520,7 +560,7 @@ async def complete_delivery(delivery_id: str, user: dict = Depends(require_roles
 
 @api.post("/deliveries/{delivery_id}/cancel")
 async def cancel_delivery(delivery_id: str, user: dict = Depends(get_current_user)):
-    d = await db.deliveries.find_one({"_id": ObjectId(delivery_id)})
+    d = await db.deliveries.find_one({"_id": oid(delivery_id)})
     if not d:
         raise HTTPException(404, "Not found")
     allowed = user["role"] == "admin" or (user["role"] == "store" and d.get("store_id") == str(user["_id"]) and d.get("status") == "pending")
@@ -583,7 +623,7 @@ async def list_statements(user: dict = Depends(get_current_user)):
 
 @api.post("/statements/{statement_id}/proof")
 async def upload_proof(statement_id: str, file: UploadFile = File(...), user: dict = Depends(require_roles("store"))):
-    s = await db.statements.find_one({"_id": ObjectId(statement_id)})
+    s = await db.statements.find_one({"_id": oid(statement_id)})
     if not s or s.get("store_id") != str(user["_id"]):
         raise HTTPException(403, "Forbidden")
     if s.get("status") == "approved":
@@ -620,7 +660,7 @@ async def get_file(path: str = Query(...), user: dict = Depends(get_current_user
 
 @api.post("/statements/{statement_id}/approve")
 async def approve_statement(statement_id: str, body: ApproveStatementIn, user: dict = Depends(require_roles("admin"))):
-    s = await db.statements.find_one({"_id": ObjectId(statement_id)})
+    s = await db.statements.find_one({"_id": oid(statement_id)})
     if not s:
         raise HTTPException(404, "Not found")
     new_status = "approved" if body.approved else "rejected"
@@ -669,7 +709,7 @@ async def list_tickets(user: dict = Depends(get_current_user)):
 
 @api.post("/tickets/{ticket_id}/message")
 async def ticket_message(ticket_id: str, body: TicketMessageIn, user: dict = Depends(get_current_user)):
-    t = await db.tickets.find_one({"_id": ObjectId(ticket_id)})
+    t = await db.tickets.find_one({"_id": oid(ticket_id)})
     if not t:
         raise HTTPException(404, "Not found")
     if user["role"] != "admin" and t.get("opened_by_id") != str(user["_id"]):
@@ -680,7 +720,7 @@ async def ticket_message(ticket_id: str, body: TicketMessageIn, user: dict = Dep
 
 @api.post("/tickets/{ticket_id}/resolve")
 async def resolve_ticket(ticket_id: str, user: dict = Depends(require_roles("admin"))):
-    await db.tickets.update_one({"_id": ObjectId(ticket_id)}, {"$set": {"status": "resolved", "resolved_at": now_iso()}})
+    await db.tickets.update_one({"_id": oid(ticket_id)}, {"$set": {"status": "resolved", "resolved_at": now_iso()}})
     return {"ok": True}
 
 async def can_view_delivery(user: dict, d: dict) -> bool:
@@ -691,7 +731,7 @@ async def can_view_delivery(user: dict, d: dict) -> bool:
 
 @api.get("/deliveries/{delivery_id}/chat")
 async def get_chat(delivery_id: str, user: dict = Depends(get_current_user)):
-    d = await db.deliveries.find_one({"_id": ObjectId(delivery_id)})
+    d = await db.deliveries.find_one({"_id": oid(delivery_id)})
     if not d:
         raise HTTPException(404, "Not found")
     if not await can_view_delivery(user, d):
@@ -701,7 +741,7 @@ async def get_chat(delivery_id: str, user: dict = Depends(get_current_user)):
 
 @api.post("/deliveries/{delivery_id}/chat")
 async def send_chat(delivery_id: str, body: ChatMessageIn, user: dict = Depends(get_current_user)):
-    d = await db.deliveries.find_one({"_id": ObjectId(delivery_id)})
+    d = await db.deliveries.find_one({"_id": oid(delivery_id)})
     if not d:
         raise HTTPException(404, "Not found")
     if not await can_view_delivery(user, d):
@@ -733,12 +773,12 @@ async def admin_patch_user(user_id: str, body: UserPatchIn, user: dict = Depends
     upd = {k: v for k, v in body.dict().items() if v is not None}
     if not upd:
         return {"ok": True}
-    await db.users.update_one({"_id": ObjectId(user_id)}, {"$set": upd})
+    await db.users.update_one({"_id": oid(user_id)}, {"$set": upd})
     return {"ok": True}
 
 @api.post("/admin/users/{user_id}/approve")
 async def admin_approve_user(user_id: str, user: dict = Depends(require_roles("admin"))):
-    await db.users.update_one({"_id": ObjectId(user_id)}, {"$set": {"status": "active"}})
+    await db.users.update_one({"_id": oid(user_id)}, {"$set": {"status": "active"}})
     return {"ok": True}
 
 @api.get("/admin/settings")

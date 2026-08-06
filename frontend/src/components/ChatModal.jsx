@@ -20,7 +20,9 @@ export default function ChatModal({ delivery, onClose }) {
   useEffect(() => {
     load();
     const t = setInterval(load, 4000);
-    return () => clearInterval(t);
+    const onKey = (e) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", onKey);
+    return () => { clearInterval(t); window.removeEventListener("keydown", onKey); };
     // eslint-disable-next-line
   }, [delivery?.id]);
 
@@ -37,8 +39,8 @@ export default function ChatModal({ delivery, onClose }) {
   if (!delivery) return null;
 
   return (
-    <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4">
-      <div className="bg-slate-900 border border-slate-800 rounded-3xl max-w-md w-full h-[500px] flex flex-col shadow-2xl overflow-hidden" data-testid="chat-modal">
+    <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4" onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+      <div className="bg-slate-900 border border-slate-800 rounded-3xl max-w-md w-full h-[500px] flex flex-col shadow-2xl overflow-hidden" data-testid="chat-modal" onClick={(e) => e.stopPropagation()}>
         <div className="p-4 bg-slate-950 border-b border-slate-800 flex items-center justify-between">
           <div>
             <h3 className="font-bold text-white text-sm">Chat GiroExpress</h3>
