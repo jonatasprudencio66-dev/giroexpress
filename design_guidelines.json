@@ -1,0 +1,67 @@
+{
+  "app_name": "GiroExpress",
+  "app_type": "saas_app",
+  "context": "On-demand B2B2C / P2P Logistics platform inspired by Uber for deliveries with 4 distinct roles (Loja, Motoboy, Administrador, Cliente Final)",
+  "design_archetype": "THE PERFORMANCE PRO / SWISS HIGH-CONTRAST",
+  "typography": {
+    "headings": {
+      "font_family": "Plus Jakarta Sans, sans-serif",
+      "weights": ["600", "700", "800"],
+      "letter_spacing": "tracking-tight"
+    },
+    "body": {
+      "font_family": "Inter, sans-serif",
+      "weights": ["400", "500"]
+    }
+  },
+  "colors": {
+    "primary": "#FF5722",
+    "primary_hover": "#E64A19",
+    "secondary": "#0F172A",
+    "background_dark": "#090D16",
+    "background_light": "#F8FAFC",
+    "surface_dark": "#111827",
+    "surface_light": "#FFFFFF",
+    "border_dark": "rgba(255, 255, 255, 0.1)",
+    "border_light": "rgba(15, 23, 42, 0.1)",
+    "text_dark": "#F1F5F9",
+    "text_light": "#0F172A",
+    "accent_green": "#10B981",
+    "accent_amber": "#F59E0B"
+  },
+  "surface_strategies": {
+    "cards": "Flat background with 1px subtle border, rounded-xl, no heavy shadows except hover lift",
+    "header": "Crystal glass with backdrop-blur-xl bg-slate-900/80 border-b border-white/15 fixed z-50",
+    "modals": "Opaque surface with backdrop blur overlay"
+  },
+  "key_functionalities": [
+    "Role switcher for testing all 4 profiles (Loja, Motoboy, Admin, Cliente)",
+    "Automatic pricing calculator based on distance table (0.5km to 15km)",
+    "Online/Offline toggle for Motoboy",
+    "Batch delivery support up to 3 simultaneous orders",
+    "Weekly billing and statement closure (Sundays to Tuesdays)",
+    "Real-time chat and support tickets system",
+    "Google Maps integrated simulation view"
+  ],
+  "image_urls": {
+    "hero_rider": "https://images.unsplash.com/photo-1617347454431-f49d7ff5c3b1?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjY2NzV8MHwxfHNlYXJjaHwxfHxkZWxpdmVyeSUyMHJpZGVyJTIwdXJiYW4lMjBzdHJlZXQlMjBzY29vdGVyfGVufDB8fHx8MTc4MjQ1NDkwMnww&ixlib=rb-4.1.0&q=85",
+    "street_rider": "https://images.unsplash.com/photo-1695654390723-479197a8c4a3?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjY2NzV8MHwxfHNlYXJjaHwyfHxkZWxpdmVyeSUyMHJpZGVyJTIwdXJiYW4lMjBzdHJlZXQlMjBzY29vdGVyfGVufDB8fHx8MTc4MjQ1NDkwMnww&ixlib=rb-4.1.0&q=85",
+    "scooter_delivery": "https://images.pexels.com/photos/18313598/pexels-photo-18313598.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940"
+  },
+  "instructions_to_main_agent": [
+    "Implement top-bar persistent Role Switcher with buttons for Loja, Motoboy, Administrador, and Cliente Final.",
+    "Build fully interactive dashboards for all 4 roles using Shadcn components and Tailwind CSS.",
+    "Create dynamic distance-based pricing calculator in Cliente/Loja view (0.5km to 15km tier table).",
+    "Implement batch delivery management (up to 3 simultaneous orders in a batch for Motoboy).",
+    "Implement Motoboy Online/Offline toggle with instant status change and order radar simulation.",
+    "Implement weekly financial statement closure view (Sundays to Tuesdays) with payout settlement for Admin and Motoboy.",
+    "Build real-time chat modal and support ticketing center accessible from all roles.",
+    "Build Google Maps integrated simulation view with animated delivery markers and route simulation.",
+    "Ensure all interactive elements have data-testid attributes and high contrast accessibility standards."
+  ],
+  "universal_guidelines": [
+    "Never use full-page generic centering or universal transitions.",
+    "Apply generous padding and modern card structures.",
+    "Ensure complete role isolation while allowing instant role switching for testing."
+  ]
+}
