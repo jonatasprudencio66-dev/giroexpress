@@ -1,0 +1,55 @@
+{
+  "summary": "Full-stack testing of GiroExpress (FastAPI+Mongo+React). Backend: created pytest suite (48 tests) covering health, auth/JWT/cookies/bcrypt, pricing table+quote (km & geocoding), delivery CRUD + RBAC, 3-simultaneous-per-store batch limit, courier approve/online/accept/start/complete, weekly statement accumulation, proof upload to object storage + /api/files RBAC, admin statement approval, chat, tickets, admin users/block/stats/bank settings. Result 47/48 passing (only missing brute-force lockout). Frontend: Playwright e2e on public URL — admin login->/admin, store register->/loja, delivery creation (manual slider 3km => R$5,99/R$4,99/19min and auto geocoding via OSM), courier register->pending banner + blocked online toggle, admin approve via UI, courier online->accept->complete, statement auto-created and proof upload (status COMPROVANTE ENVIADO), admin approve statement + resolve ticket, chat send/receive, ticket creation, route RBAC redirects (store->/admin->/loja, courier->/loja->/motoboy, admin->/loja->/admin). One real 500 bug found and fixed (ObjectId leaked in chat POST response).",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "POST /api/auth/login", "issue": "No brute-force protection / account lockout / rate limiting: 6+ consecutive wrong passwords all return 401 with no throttling (playbook requires lockout after 5 failed attempts)"},
+      {"endpoint": "GET /api/deliveries (courier)", "issue": "Couriers with status='pending' (not yet approved) can list all available deliveries including store pickup and client dropoff addresses/phones. Accept is blocked, but data exposure to unapproved accounts should be gated by status=='active'"},
+      {"endpoint": "POST /api/deliveries (batch_id)", "issue": "Batch limit check counts ALL deliveries with the batch_id regardless of status, and allow_batch is validated only when a batch_id is given; also no validation that batch_id belongs to the store"},
+      {"endpoint": "PATCH /api/admin/users/{id}", "issue": "status is a free-form string (no enum validation); admin can set any arbitrary status value. Also ObjectId(user_id) is unvalidated -> 500 on malformed id"},
+      {"endpoint": "POST /api/deliveries/{id}/accept, /start, /complete, /chat", "issue": "ObjectId(delivery_id) not wrapped in try/except (unlike GET) -> malformed id raises 500 instead of 400"},
+      {"endpoint": "GET /api/statements", "issue": "Statement stays 'open' forever if not paid; no auto-closure/overdue logic on due_date (Tuesday) — may be out of scope but no scheduled job exists"}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "ChatModal", "issue": "Modal cannot be closed with Escape key or backdrop click (only the X button); while open its full-screen overlay intercepts all clicks on the dashboard", "selector": ".fixed.inset-0.z-50 (ChatModal)", "priority": "LOW"},
+      {"component": "TicketModal (StoreDashboard)", "issue": "Missing data-testid on subject input, priority select, description textarea and submit button — had to fall back to placeholder/text selectors", "selector": "input[placeholder*='Atraso'], textarea, button:has-text('Enviar Chamado')", "priority": "LOW"},
+      {"component": "NewDeliveryModal", "issue": "The 'Calcular distância automaticamente' checkbox had no data-testid; added data-testid=\"auto-calc-toggle\" (test-only change). Distance slider only exists when auto-calc is off — expected, documented for next agent", "selector": "[data-testid='auto-calc-toggle']", "priority": "LOW"}
+    ],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "TicketModal / priority field", "issues": ["Uses native browser <select> for 'Prioridade' instead of the shadcn Select component, inconsistent with the rest of the dark UI"]},
+      {"screen": "Header (all dashboards)", "issues": ["Logo image renders as a small dark square badge with very low contrast against the dark header; brand wordmark 'GiroExpress' is not shown in dashboards (only on login)"]}
+    ]
+  },
+  "test_report_links": ["/app/backend/tests/backend_test.py", "/app/test_reports/pytest/pytest_results.xml"],
+  "action_items": [
+    "Add brute-force protection to POST /api/auth/login (failed-attempt counter + temporary lockout returning 423/429) as required by the auth playbook",
+    "Gate available-deliveries listing (and its addresses/phones) for couriers with status != 'active'",
+    "Wrap ObjectId(...) conversions in accept/start/complete/cancel/chat/tickets/admin endpoints to return 400 instead of 500 for malformed ids",
+    "Validate admin user status against an enum ('active','pending','blocked')",
+    "Add data-testid to TicketModal fields/submit and allow closing ChatModal via Escape/backdrop",
+    "Consider replacing the native priority <select> with the shadcn Select for visual consistency"
+  ],
+  "critical_code_review_comments": [
+    "FIXED by tester: POST /api/deliveries/{id}/chat returned 500 because insert_one mutated the dict adding ObjectId _id which was then spread into the JSON response ('ObjectId' object is not iterable). Now excludes _id.",
+    "server.py is ~780 lines and mixes auth, pricing, deliveries, statements, storage, tickets and admin — split into routers/services modules.",
+    "Storage helpers (init_storage/put_object/get_object) and geocode_address use blocking `requests` inside async endpoints — this blocks the event loop; use httpx.AsyncClient or run_in_threadpool.",
+    "storage_key is a module-level global mutated without a lock; concurrent uploads can race on re-init.",
+    "current_cycle_bounds uses UTC only; a Brazilian (UTC-3) Sunday->Saturday cycle will roll over 3h early — consider America/Sao_Paulo tz.",
+    "accumulate_statement pushes delivery_ids without idempotency guard; a repeated complete call path (or future retry) could double-count totals."
+  ],
+  "updated_files": [
+    "/app/backend/server.py (chat response _id exclusion fix)",
+    "/app/frontend/src/pages/StoreDashboard.jsx (added data-testid=\"auto-calc-toggle\")",
+    "/app/backend/tests/backend_test.py (new pytest suite)"
+  ],
+  "success_rate": {"backend": "98% (47/48)", "frontend": "100% of tested flows"},
+  "seed_data_creation": "API test users prefixed TEST_ (auto-cleaned by session fixture). UI test users left in DB for reuse: uitest_store_1786044393@example.com / Secret@123 (store, has delivered order + approved statement) and uitest_courier_1786044475@example.com / Secret@123 (courier, approved+online). Several older test_* users from the first failing run remain in DB and appear in the admin list.",
+  "should_call_test_agent_after_fix": true,
+  "should_main_agent_self_test": false,
+  "test_credentials": "admin@giroexpress.com / Admin@2026 (verified, bcrypt $2b$ hash, httpOnly Secure SameSite=None cookies set on login)",
+  "context_for_next_testing_agent": "Run backend suite serially: `cd /app/backend && python -m pytest tests/backend_test.py -n 0` (tests share a module-level STATE dict, so xdist loadscope splits break them). Only test_brute_force_lockout fails — feature not implemented. Frontend: new-delivery modal defaults to auto geocoding (Nominatim works from this env, ~10km for vague addresses); uncheck [data-testid='auto-calc-toggle'] to reveal [data-testid='distance-slider']. Statement for the UI store is already APPROVED, so re-upload of proof is blocked there — create a fresh store for upload retests. Old test_* users clutter the admin list; consider purging DB before UI screenshots.",
+  "rca_of_the_issue": "Chat 500: send_chat spread the inserted document into the response, and motor's insert_one mutates the passed dict by injecting the ObjectId `_id`, which FastAPI's jsonable_encoder cannot serialize (TypeError: 'ObjectId' object is not iterable). Fixed by filtering out `_id` when building the response; re-ran chat tests (backend + UI) and both pass."
+}
