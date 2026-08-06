@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import Layout from "@/components/Layout";
 import ChatModal from "@/components/ChatModal";
 import TicketModal from "@/components/TicketModal";
@@ -6,7 +6,30 @@ import { useAuth } from "@/context/AuthContext";
 import { api, apiError } from "@/lib/api";
 import { formatBRL } from "@/lib/pricing";
 import { toast } from "sonner";
-import { Bike, MapPin, MessageSquare, Play, Check, Headphones, DollarSign, Loader2, ExternalLink, Package } from "lucide-react";
+import { Bike, MapPin, MessageSquare, Play, Check, Headphones, DollarSign, Loader2, ExternalLink, Package, Bell, BellOff } from "lucide-react";
+
+function playBeep() {
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const o = ctx.createOscillator();
+    const g = ctx.createGain();
+    o.type = "sine"; o.frequency.value = 880;
+    o.connect(g); g.connect(ctx.destination);
+    g.gain.setValueAtTime(0.001, ctx.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.15, ctx.currentTime + 0.02);
+    g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.45);
+    o.start(); o.stop(ctx.currentTime + 0.5);
+    setTimeout(() => {
+      const o2 = ctx.createOscillator(); const g2 = ctx.createGain();
+      o2.type = "sine"; o2.frequency.value = 1320;
+      o2.connect(g2); g2.connect(ctx.destination);
+      g2.gain.setValueAtTime(0.001, ctx.currentTime);
+      g2.gain.exponentialRampToValueAtTime(0.15, ctx.currentTime + 0.02);
+      g2.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.45);
+      o2.start(); o2.stop(ctx.currentTime + 0.5);
+    }, 250);
+  } catch (_) {}
+}
 
 export default function CourierDashboard() {
   const { user, refresh } = useAuth();
@@ -16,10 +39,26 @@ export default function CourierDashboard() {
   const [chatDelivery, setChatDelivery] = useState(null);
   const [showTicket, setShowTicket] = useState(false);
   const [ticketForId, setTicketForId] = useState(null);
+  const [notifyOn, setNotifyOn] = useState(true);
+  const [flashCount, setFlashCount] = useState(0);
+  const seenPending = useRef(new Set());
+  const firstLoad = useRef(true);
 
   const load = async () => {
     try {
       const { data } = await api.get("/deliveries");
+      // Detect new pending deliveries
+      const pending = data.filter(d => d.status === "pending" && !d.courier_id);
+      if (!firstLoad.current && online && notifyOn) {
+        const fresh = pending.filter(d => !seenPending.current.has(d.id));
+        if (fresh.length) {
+          playBeep();
+          setFlashCount(c => c + fresh.length);
+          fresh.forEach(d => toast.info(`🛵 Nova corrida! ${d.code} • ${d.store_name} • ${formatBRL(d.gross_price)}`, { duration: 8000 }));
+        }
+      }
+      seenPending.current = new Set(pending.map(d => d.id));
+      firstLoad.current = false;
       setDeliveries(data);
     } catch (e) { toast.error(apiError(e)); }
     finally { setLoading(false); }
@@ -57,12 +96,17 @@ export default function CourierDashboard() {
 
   return (
     <Layout subtitle="Painel do Motoboy" right={
-      <div className="flex items-center bg-slate-950 px-4 py-2 rounded-2xl border border-slate-800 space-x-3">
-        <div className={`w-3 h-3 rounded-full ${online ? "bg-emerald-500 animate-pulse" : "bg-slate-600"}`} />
-        <span className="text-xs font-bold text-slate-300 hidden sm:inline">{online ? "ONLINE" : "OFFLINE"}</span>
-        <button data-testid="toggle-online-btn" onClick={toggleOnline} className={`px-3 py-1.5 rounded-lg text-xs font-bold transition ${online ? "bg-rose-600 hover:bg-rose-500 text-white" : "bg-emerald-600 hover:bg-emerald-500 text-white"}`}>
-          {online ? "Ficar Offline" : "Ficar Online"}
+      <div className="flex items-center space-x-2">
+        <button data-testid="toggle-notify-btn" onClick={() => setNotifyOn(v => !v)} title={notifyOn ? "Silenciar" : "Ativar som"} className={`p-2 rounded-xl border ${notifyOn ? "bg-orange-500/10 text-orange-400 border-orange-500/30" : "bg-slate-900 text-slate-500 border-slate-800"}`}>
+          {notifyOn ? <Bell className="w-4 h-4" /> : <BellOff className="w-4 h-4" />}
         </button>
+        <div className="flex items-center bg-slate-950 px-4 py-2 rounded-2xl border border-slate-800 space-x-3">
+          <div className={`w-3 h-3 rounded-full ${online ? "bg-emerald-500 animate-pulse" : "bg-slate-600"}`} />
+          <span className="text-xs font-bold text-slate-300 hidden sm:inline">{online ? "ONLINE" : "OFFLINE"}</span>
+          <button data-testid="toggle-online-btn" onClick={toggleOnline} className={`px-3 py-1.5 rounded-lg text-xs font-bold transition ${online ? "bg-rose-600 hover:bg-rose-500 text-white" : "bg-emerald-600 hover:bg-emerald-500 text-white"}`}>
+            {online ? "Ficar Offline" : "Ficar Online"}
+          </button>
+        </div>
       </div>
     }>
       {user?.status === "pending" && (
@@ -81,7 +125,7 @@ export default function CourierDashboard() {
 
       {loading ? <Loader2 className="w-6 h-6 animate-spin text-slate-500" /> : (
         <>
-          <Section title="Corridas Disponíveis" empty="Nenhuma corrida disponível no momento." data={available}>
+          <Section title="Corridas Disponíveis" empty="Nenhuma corrida disponível no momento." data={available} badge={flashCount > 0 ? flashCount : null} onSeen={() => setFlashCount(0)}>
             {(d) => (
               <DeliveryCard key={d.id} d={d} me={user} online={online}
                 onAccept={() => act(d.id, "accept")}
@@ -129,10 +173,14 @@ function StatCard({ icon, label, value, sub, testid }) {
   );
 }
 
-function Section({ title, data, empty, children }) {
+function Section({ title, data, empty, children, badge = null, onSeen }) {
   return (
-    <section className="bg-slate-900 border border-slate-800 rounded-2xl p-6">
-      <h3 className="font-bold text-lg text-white mb-4">{title} <span className="text-xs text-slate-500 font-normal">({data.length})</span></h3>
+    <section className="bg-slate-900 border border-slate-800 rounded-2xl p-6" onMouseEnter={onSeen}>
+      <h3 className="font-bold text-lg text-white mb-4 flex items-center space-x-2">
+        <span>{title}</span>
+        <span className="text-xs text-slate-500 font-normal">({data.length})</span>
+        {badge ? <span data-testid="new-delivery-badge" className="text-[10px] font-black bg-orange-500 text-slate-950 px-2 py-0.5 rounded-full animate-pulse">+{badge} NOVA{badge > 1 ? "S" : ""}</span> : null}
+      </h3>
       {data.length === 0 ? <p className="text-sm text-slate-400">{empty}</p> : (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {data.map(children)}

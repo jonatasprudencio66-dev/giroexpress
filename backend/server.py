@@ -232,6 +232,48 @@ def current_cycle_bounds(now: datetime = None):
 def cycle_label(start: datetime, end: datetime) -> str:
     return f"Domingo ({start.strftime('%d/%m')}) a Sábado ({end.strftime('%d/%m')})"
 
+# ----- Operations schedule (open/close) -----
+DEFAULT_OPS = {
+    "enabled": True,
+    "disabled_weekdays": [],  # e.g. [5] to disable Saturday (Mon=0..Sun=6)
+    "open_time": "00:00",
+    "close_time": "23:59",
+    "holidays": [],           # ["YYYY-MM-DD", ...]
+}
+
+def _parse_hhmm(s: str):
+    try:
+        h, m = s.split(":")
+        return int(h), int(m)
+    except Exception:
+        return None
+
+def check_system_open(ops: dict, now: datetime = None):
+    """Returns (open: bool, reason: Optional[str]) — in America/Sao_Paulo (UTC-3)."""
+    now = now or datetime.now(timezone.utc)
+    local = now - timedelta(hours=3)  # BR local
+    if not ops.get("enabled", True):
+        return False, "Plataforma temporariamente desativada pelo administrador."
+    wd = local.weekday()
+    if wd in (ops.get("disabled_weekdays") or []):
+        return False, "Sem atendimento neste dia da semana (configuração do admin)."
+    day = local.strftime("%Y-%m-%d")
+    if day in (ops.get("holidays") or []):
+        return False, f"Sem atendimento (feriado {day})."
+    ot = _parse_hhmm(ops.get("open_time") or "00:00")
+    ct = _parse_hhmm(ops.get("close_time") or "23:59")
+    if ot and ct:
+        mins = local.hour * 60 + local.minute
+        om = ot[0] * 60 + ot[1]
+        cm = ct[0] * 60 + ct[1]
+        if not (om <= mins <= cm):
+            return False, f"Fora do horário de atendimento ({ops['open_time']}–{ops['close_time']})."
+    return True, None
+
+async def get_ops():
+    s = await db.admin_settings.find_one({"_id": "settings"}) or {}
+    return {**DEFAULT_OPS, **(s.get("operations") or {})}
+
 app = FastAPI(title="GiroExpress API")
 api = APIRouter(prefix="/api")
 
@@ -292,6 +334,20 @@ class BankIn(BaseModel):
 class ApproveStatementIn(BaseModel):
     approved: bool
 
+class ForgotPasswordIn(BaseModel):
+    email: EmailStr
+
+class ResetPasswordIn(BaseModel):
+    token: str
+    password: str = Field(min_length=6)
+
+class OperationsSettingsIn(BaseModel):
+    disabled_weekdays: Optional[List[int]] = None   # 0=Mon..6=Sun
+    open_time: Optional[str] = None                 # "HH:MM"
+    close_time: Optional[str] = None                # "HH:MM"
+    holidays: Optional[List[str]] = None            # ["YYYY-MM-DD", ...]
+    enabled: Optional[bool] = None                  # master switch
+
 @app.on_event("startup")
 async def startup():
     await db.users.create_index("email", unique=True)
@@ -300,6 +356,10 @@ async def startup():
     await db.statements.create_index([("store_id", 1), ("period_start", -1)])
     await db.tickets.create_index([("created_at", -1)])
     await db.chat_messages.create_index([("delivery_id", 1), ("created_at", 1)])
+    try:
+        await db.password_reset_tokens.create_index("expires_at", expireAfterSeconds=0)
+    except Exception:
+        pass
 
     existing = await db.users.find_one({"email": ADMIN_EMAIL})
     if not existing:
@@ -434,6 +494,10 @@ async def next_delivery_code() -> str:
 
 @api.post("/deliveries")
 async def create_delivery(body: DeliveryIn, user: dict = Depends(require_roles("store"))):
+    ops = await get_ops()
+    is_open, reason = check_system_open(ops)
+    if not is_open:
+        raise HTTPException(400, reason or "Sistema fechado.")
     km = body.distance_km
     geocoded = False
     if km is None:
@@ -802,6 +866,84 @@ async def admin_stats(user: dict = Depends(require_roles("admin"))):
     fees = total_fees_agg[0]["total"] if total_fees_agg else 0.0
     open_tickets = await db.tickets.count_documents({"status": "open"})
     return {"total_users": total_users, "total_stores": total_stores, "total_couriers": total_couriers, "total_deliveries": total_deliveries, "delivered": delivered, "platform_fees_collected": round(fees, 2), "open_tickets": open_tickets}
+
+import secrets as _secrets
+
+@api.post("/auth/forgot-password")
+async def forgot_password(body: ForgotPasswordIn):
+    email = body.email.lower()
+    u = await db.users.find_one({"email": email})
+    # Never leak whether email exists
+    if u:
+        token = _secrets.token_urlsafe(32)
+        expires = datetime.now(timezone.utc) + timedelta(hours=1)
+        await db.password_reset_tokens.insert_one({
+            "token": token,
+            "user_id": str(u["_id"]),
+            "email": email,
+            "expires_at": expires,
+            "used": False,
+            "created_at": now_iso(),
+        })
+        reset_link = f"{os.environ.get('FRONTEND_URL', '')}/reset-password?token={token}"
+        logger.info(f"[PASSWORD RESET] {email} => {reset_link}")
+        # In demo mode, return the link so it can be surfaced by admin/test.
+        # In production, replace with email sending (Resend/SendGrid).
+        return {"ok": True, "demo_reset_link": reset_link}
+    return {"ok": True}
+
+@api.post("/auth/reset-password")
+async def reset_password(body: ResetPasswordIn):
+    rec = await db.password_reset_tokens.find_one({"token": body.token})
+    if not rec:
+        raise HTTPException(400, "Token inválido.")
+    if rec.get("used"):
+        raise HTTPException(400, "Token já utilizado.")
+    expires = rec["expires_at"]
+    if isinstance(expires, str):
+        expires = datetime.fromisoformat(expires)
+    if expires.tzinfo is None:
+        expires = expires.replace(tzinfo=timezone.utc)
+    if datetime.now(timezone.utc) > expires:
+        raise HTTPException(400, "Token expirado.")
+    await db.users.update_one({"_id": oid(rec["user_id"])}, {"$set": {"password_hash": hash_password(body.password)}})
+    await db.password_reset_tokens.update_one({"_id": rec["_id"]}, {"$set": {"used": True, "used_at": now_iso()}})
+    return {"ok": True}
+
+@api.get("/system/status")
+async def system_status():
+    ops = await get_ops()
+    is_open, reason = check_system_open(ops)
+    return {"open": is_open, "reason": reason, "ops": ops}
+
+@api.get("/admin/settings/operations")
+async def admin_get_ops(user: dict = Depends(require_roles("admin"))):
+    return await get_ops()
+
+@api.put("/admin/settings/operations")
+async def admin_set_ops(body: OperationsSettingsIn, user: dict = Depends(require_roles("admin"))):
+    curr = await get_ops()
+    upd = {k: v for k, v in body.dict().items() if v is not None}
+    # validate weekdays
+    if "disabled_weekdays" in upd:
+        upd["disabled_weekdays"] = sorted({int(x) for x in upd["disabled_weekdays"] if 0 <= int(x) <= 6})
+    # validate holiday format
+    if "holidays" in upd:
+        valid = []
+        for h in upd["holidays"]:
+            try:
+                datetime.strptime(h, "%Y-%m-%d")
+                valid.append(h)
+            except Exception:
+                pass
+        upd["holidays"] = sorted(set(valid))
+    if "open_time" in upd and not _parse_hhmm(upd["open_time"]):
+        raise HTTPException(400, "open_time inválido (HH:MM)")
+    if "close_time" in upd and not _parse_hhmm(upd["close_time"]):
+        raise HTTPException(400, "close_time inválido (HH:MM)")
+    merged = {**curr, **upd}
+    await db.admin_settings.update_one({"_id": "settings"}, {"$set": {"operations": merged}}, upsert=True)
+    return merged
 
 @api.get("/")
 async def root():

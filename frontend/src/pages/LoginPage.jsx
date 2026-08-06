@@ -64,6 +64,10 @@ export default function LoginPage() {
               {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <LogIn className="w-4 h-4" />}
               <span>{busy ? "Entrando..." : "Entrar"}</span>
             </button>
+
+            <div className="text-right">
+              <Link to="/forgot-password" data-testid="link-forgot" className="text-xs text-slate-400 hover:text-orange-400 transition">Esqueci minha senha</Link>
+            </div>
           </form>
 
           <p className="text-sm text-slate-400 text-center">

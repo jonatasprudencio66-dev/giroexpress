@@ -4,6 +4,8 @@ import { Toaster } from "sonner";
 import { AuthProvider, useAuth } from "@/context/AuthContext";
 import LoginPage from "@/pages/LoginPage";
 import RegisterPage from "@/pages/RegisterPage";
+import ForgotPasswordPage from "@/pages/ForgotPasswordPage";
+import ResetPasswordPage from "@/pages/ResetPasswordPage";
 import StoreDashboard from "@/pages/StoreDashboard";
 import CourierDashboard from "@/pages/CourierDashboard";
 import AdminDashboard from "@/pages/AdminDashboard";
@@ -42,6 +44,8 @@ function AppRoutes() {
       <Route path="/" element={<RoleRedirect />} />
       <Route path="/login" element={<LoginPage />} />
       <Route path="/register" element={<RegisterPage />} />
+      <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+      <Route path="/reset-password" element={<ResetPasswordPage />} />
       <Route path="/loja" element={<ProtectedRoute role="store"><StoreDashboard /></ProtectedRoute>} />
       <Route path="/motoboy" element={<ProtectedRoute role="courier"><CourierDashboard /></ProtectedRoute>} />
       <Route path="/admin" element={<ProtectedRoute role="admin"><AdminDashboard /></ProtectedRoute>} />

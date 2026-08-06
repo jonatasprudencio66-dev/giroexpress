@@ -6,13 +6,14 @@ import { useAuth } from "@/context/AuthContext";
 import { api, apiError, API_BASE } from "@/lib/api";
 import { priceFromKm, formatBRL, PLATFORM_FEE } from "@/lib/pricing";
 import { toast } from "sonner";
-import { Plus, MapPin, MessageSquare, Headphones, Upload, FileText, Loader2, X, CheckSquare, Package, DollarSign, ExternalLink } from "lucide-react";
+import { Plus, MapPin, MessageSquare, Headphones, Upload, FileText, Loader2, X, CheckSquare, Package, DollarSign, ExternalLink, AlertTriangle } from "lucide-react";
 
 export default function StoreDashboard() {
   const { user, refresh } = useAuth();
   const [deliveries, setDeliveries] = useState([]);
   const [statements, setStatements] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [systemStatus, setSystemStatus] = useState({ open: true, reason: null });
 
   const [showNew, setShowNew] = useState(false);
   const [showTicket, setShowTicket] = useState(false);
@@ -23,9 +24,10 @@ export default function StoreDashboard() {
 
   const load = async () => {
     try {
-      const [d, s] = await Promise.all([api.get("/deliveries"), api.get("/statements")]);
+      const [d, s, sys] = await Promise.all([api.get("/deliveries"), api.get("/statements"), api.get("/system/status")]);
       setDeliveries(d.data);
       setStatements(s.data);
+      setSystemStatus({ open: sys.data.open, reason: sys.data.reason });
     } catch (e) { toast.error(apiError(e)); }
     finally { setLoading(false); }
   };
@@ -43,6 +45,15 @@ export default function StoreDashboard() {
 
   return (
     <Layout subtitle="Painel da Loja">
+      {!systemStatus.open && (
+        <div data-testid="system-closed-banner" className="bg-rose-500/10 border border-rose-500/40 text-rose-300 p-4 rounded-2xl flex items-start space-x-3">
+          <AlertTriangle className="w-5 h-5 text-rose-400 shrink-0 mt-0.5" />
+          <div>
+            <p className="font-bold text-rose-300">Sistema fechado no momento</p>
+            <p className="text-sm">{systemStatus.reason || "Novas entregas estão temporariamente desativadas pelo administrador."}</p>
+          </div>
+        </div>
+      )}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4" data-testid="store-dashboard">
         <StatCard icon={<DollarSign className="w-5 h-5" />} label="Extrato Acumulado (Semana Atual)" value={formatBRL(weekBalance)} sub="Fechamento domingo · Vencimento terça" testid="store-weekly-balance" />
         <StatCard icon={<Package className="w-5 h-5" />} label="Entregas Realizadas" value={`${deliveries.filter(d => d.status === "delivered").length}`} sub={`${deliveries.length} totais (incluindo pendentes)`} />
@@ -57,7 +68,7 @@ export default function StoreDashboard() {
       </div>
 
       <div className="flex flex-wrap items-center gap-3">
-        <button data-testid="new-delivery-btn" onClick={() => setShowNew(true)} className="bg-orange-500 hover:bg-orange-400 text-slate-950 font-bold px-5 py-3 rounded-xl shadow-lg shadow-orange-500/30 flex items-center space-x-2 transition">
+        <button data-testid="new-delivery-btn" disabled={!systemStatus.open} onClick={() => setShowNew(true)} className={`font-bold px-5 py-3 rounded-xl flex items-center space-x-2 transition shadow-lg ${systemStatus.open ? "bg-orange-500 hover:bg-orange-400 text-slate-950 shadow-orange-500/30" : "bg-slate-800 text-slate-500 cursor-not-allowed"}`}>
           <Plus className="w-4 h-4" /><span>Solicitar Nova Entrega</span>
         </button>
         <button data-testid="open-ticket-btn" onClick={() => { setTicketForId(null); setShowTicket(true); }} className="bg-slate-900 hover:bg-slate-800 border border-slate-700 text-orange-400 px-5 py-3 rounded-xl text-sm font-semibold flex items-center space-x-2">

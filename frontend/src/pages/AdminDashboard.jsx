@@ -3,7 +3,12 @@ import Layout from "@/components/Layout";
 import { api, apiError, API_BASE } from "@/lib/api";
 import { formatBRL } from "@/lib/pricing";
 import { toast } from "sonner";
-import { Loader2, Shield, Users, DollarSign, Package, Headphones, CheckSquare, XSquare, ExternalLink, Save } from "lucide-react";
+import { Loader2, Shield, Users, DollarSign, Package, Headphones, CheckSquare, XSquare, ExternalLink, Save, Calendar, Clock, Plus, Trash2, Power } from "lucide-react";
+
+const WEEKDAYS = [
+  { i: 0, label: "Seg" }, { i: 1, label: "Ter" }, { i: 2, label: "Qua" },
+  { i: 3, label: "Qui" }, { i: 4, label: "Sex" }, { i: 5, label: "Sáb" }, { i: 6, label: "Dom" }
+];
 
 export default function AdminDashboard() {
   const [stats, setStats] = useState(null);
@@ -12,19 +17,23 @@ export default function AdminDashboard() {
   const [tickets, setTickets] = useState([]);
   const [settings, setSettings] = useState({ bank: {} });
   const [bank, setBank] = useState({ bank: "", agency: "", account: "", pix_key: "" });
+  const [ops, setOps] = useState({ enabled: true, disabled_weekdays: [], open_time: "00:00", close_time: "23:59", holidays: [] });
+  const [newHoliday, setNewHoliday] = useState("");
   const [loading, setLoading] = useState(true);
 
   const load = async () => {
     try {
-      const [st, u, s, t, cfg] = await Promise.all([
+      const [st, u, s, t, cfg, opsRes] = await Promise.all([
         api.get("/admin/stats"),
         api.get("/admin/users"),
         api.get("/statements"),
         api.get("/tickets"),
         api.get("/admin/settings"),
+        api.get("/admin/settings/operations"),
       ]);
       setStats(st.data); setUsers(u.data); setStatements(s.data); setTickets(t.data); setSettings(cfg.data);
       setBank({ ...cfg.data.bank });
+      setOps({ ...ops, ...opsRes.data });
     } catch (e) { toast.error(apiError(e)); }
     finally { setLoading(false); }
   };
@@ -38,6 +47,25 @@ export default function AdminDashboard() {
   const resolveTicket = async (id) => { try { await api.post(`/tickets/${id}/resolve`); toast.success("Chamado resolvido."); await load(); } catch (e) { toast.error(apiError(e)); } };
 
   const saveBank = async () => { try { await api.put("/admin/settings/bank", bank); toast.success("Dados bancários salvos."); await load(); } catch (e) { toast.error(apiError(e)); } };
+
+  const saveOps = async (patch) => {
+    const next = { ...ops, ...patch };
+    setOps(next);
+    try { await api.put("/admin/settings/operations", patch); toast.success("Horários atualizados."); }
+    catch (e) { toast.error(apiError(e)); }
+  };
+
+  const toggleWeekday = (i) => {
+    const set = new Set(ops.disabled_weekdays || []);
+    if (set.has(i)) set.delete(i); else set.add(i);
+    saveOps({ disabled_weekdays: Array.from(set).sort() });
+  };
+  const addHoliday = () => {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(newHoliday)) { toast.error("Use o formato AAAA-MM-DD"); return; }
+    saveOps({ holidays: Array.from(new Set([...(ops.holidays || []), newHoliday])).sort() });
+    setNewHoliday("");
+  };
+  const removeHoliday = (h) => saveOps({ holidays: (ops.holidays || []).filter(x => x !== h) });
 
   if (loading) return <Layout subtitle="Admin Master"><Loader2 className="w-6 h-6 animate-spin text-slate-500" /></Layout>;
 
@@ -87,6 +115,61 @@ export default function AdminDashboard() {
                 </div>
               </div>
             ))}
+          </div>
+        </div>
+      </section>
+
+      <section className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-4" data-testid="ops-settings">
+        <div className="flex items-center justify-between flex-wrap gap-3">
+          <h3 className="font-bold text-lg text-white flex items-center space-x-2"><Clock className="w-5 h-5 text-orange-400" /><span>Horário de Funcionamento &amp; Modo Sábado</span></h3>
+          <label className="flex items-center space-x-2 bg-slate-950 px-4 py-2 rounded-xl border border-slate-800">
+            <input data-testid="ops-enabled" type="checkbox" checked={ops.enabled} onChange={(e) => saveOps({ enabled: e.target.checked })} className="w-4 h-4 accent-orange-500" />
+            <Power className={`w-4 h-4 ${ops.enabled ? "text-emerald-400" : "text-rose-400"}`} />
+            <span className="text-xs font-bold text-slate-300">{ops.enabled ? "Plataforma ativa" : "Plataforma DESATIVADA"}</span>
+          </label>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="bg-slate-950 border border-slate-800 p-4 rounded-xl space-y-3">
+            <p className="text-xs uppercase font-bold text-orange-400 tracking-wide">Dias da Semana Desativados</p>
+            <div className="flex flex-wrap gap-2">
+              {WEEKDAYS.map(w => {
+                const active = (ops.disabled_weekdays || []).includes(w.i);
+                return (
+                  <button key={w.i} data-testid={`weekday-${w.i}`} onClick={() => toggleWeekday(w.i)} className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition ${active ? "bg-rose-500/20 text-rose-400 border-rose-500/40" : "bg-slate-900 text-slate-400 border-slate-800 hover:border-slate-700"}`}>
+                    {w.label}
+                  </button>
+                );
+              })}
+            </div>
+            <p className="text-[10px] text-slate-500">Vermelho = sem atendimento nesse dia</p>
+          </div>
+
+          <div className="bg-slate-950 border border-slate-800 p-4 rounded-xl space-y-3">
+            <p className="text-xs uppercase font-bold text-orange-400 tracking-wide">Horário de Abertura / Fechamento</p>
+            <div className="flex items-center space-x-2">
+              <input data-testid="ops-open-time" type="time" value={ops.open_time} onChange={(e) => setOps({ ...ops, open_time: e.target.value })} onBlur={(e) => saveOps({ open_time: e.target.value })} className="bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-orange-500" />
+              <span className="text-slate-500">até</span>
+              <input data-testid="ops-close-time" type="time" value={ops.close_time} onChange={(e) => setOps({ ...ops, close_time: e.target.value })} onBlur={(e) => saveOps({ close_time: e.target.value })} className="bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-orange-500" />
+            </div>
+            <p className="text-[10px] text-slate-500">Fuso America/São Paulo (UTC-3)</p>
+          </div>
+
+          <div className="bg-slate-950 border border-slate-800 p-4 rounded-xl space-y-3">
+            <p className="text-xs uppercase font-bold text-orange-400 tracking-wide">Feriados</p>
+            <div className="flex items-center space-x-2">
+              <input data-testid="holiday-input" type="date" value={newHoliday} onChange={(e) => setNewHoliday(e.target.value)} className="flex-1 bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-orange-500" />
+              <button data-testid="add-holiday-btn" onClick={addHoliday} className="bg-orange-500 hover:bg-orange-400 text-slate-950 font-bold px-3 py-2 rounded-lg text-xs flex items-center space-x-1"><Plus className="w-3.5 h-3.5" /><span>Add</span></button>
+            </div>
+            <div className="flex flex-wrap gap-1.5 max-h-24 overflow-y-auto">
+              {(ops.holidays || []).length === 0 && <p className="text-[10px] text-slate-500">Nenhum feriado cadastrado.</p>}
+              {(ops.holidays || []).map(h => (
+                <span key={h} className="inline-flex items-center space-x-1 bg-rose-500/10 text-rose-400 border border-rose-500/30 text-[10px] font-bold px-2 py-0.5 rounded" data-testid={`holiday-${h}`}>
+                  <Calendar className="w-3 h-3" /><span>{h}</span>
+                  <button onClick={() => removeHoliday(h)} className="hover:text-white"><Trash2 className="w-3 h-3" /></button>
+                </span>
+              ))}
+            </div>
           </div>
         </div>
       </section>
