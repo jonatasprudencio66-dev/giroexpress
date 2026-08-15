@@ -1,6 +1,7 @@
 import axios from "axios";
 
-const BASE = process.env.REACT_APP_BACKEND_URL;
+export const BASE = "http://192.168.0.110:8002";
+export const API_BASE = BASE; // Adicionado para resolver o erro nas páginas
 
 export const api = axios.create({
   baseURL: `${BASE}/api`,
@@ -8,7 +9,6 @@ export const api = axios.create({
   headers: { "Content-Type": "application/json" },
 });
 
-// Attach bearer from localStorage as fallback (cookies also work)
 api.interceptors.request.use((config) => {
   const t = localStorage.getItem("giro_token");
   if (t) config.headers.Authorization = `Bearer ${t}`;
@@ -23,5 +23,3 @@ export function apiError(err) {
   if (d?.msg) return d.msg;
   return String(d);
 }
-
-export const API_BASE = BASE;

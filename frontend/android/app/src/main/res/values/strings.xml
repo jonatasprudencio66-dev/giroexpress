@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">GiroExpress</string>
+    <string name="title_activity_main">GiroExpress</string>
+    <string name="package_name">com.giroexpress.ap</string>
+    <string name="custom_url_scheme">com.giroexpress.ap</string>
+</resources>

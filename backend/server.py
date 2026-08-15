@@ -70,27 +70,27 @@ def get_object(path: str):
     resp.raise_for_status()
     return resp.content, resp.headers.get("Content-Type", "application/octet-stream")
 
-PRICING_TABLE = [
-    (0.5, 3.99, 12), (1.0, 3.99, 14), (1.5, 4.99, 16), (2.0, 4.99, 17),
-    (2.5, 5.99, 18), (3.0, 5.99, 19), (3.5, 6.99, 20), (4.0, 6.99, 21),
-    (4.5, 7.99, 22), (5.0, 7.99, 23), (5.5, 8.99, 24), (6.0, 9.99, 25),
-    (6.5, 10.99, 26), (7.0, 11.99, 27), (7.5, 12.99, 29), (8.0, 13.99, 30),
-    (8.5, 14.99, 31), (9.0, 15.99, 32), (9.5, 16.99, 33), (10.0, 17.99, 33),
-    (10.5, 19.99, 34), (11.0, 19.99, 34), (11.5, 20.99, 35), (12.0, 22.99, 36),
-    (12.5, 22.99, 37), (13.0, 24.99, 38), (13.5, 24.99, 39), (14.0, 24.99, 39),
-    (14.5, 24.99, 40), (15.0, 24.99, 41),
-]
+DELIVERY_RATES = {
+    "cidade": 8.00,
+    "condominio_cidade": 10.00,
+    "raizes_botanico": 12.00,
+    "reserva_bosque": 15.00,
+    "afastados": 20.00,
+}
 
-def price_from_km(km: float) -> dict:
-    km = max(0.1, float(km))
-    matched = PRICING_TABLE[-1]
-    for row in PRICING_TABLE:
-        if km <= row[0]:
-            matched = row
-            break
-    gross = matched[1]
+def calculate_delivery_price(delivery_type: str, custom_price: Optional[float] = None) -> dict:
+    if delivery_type == "custom":
+        gross = float(custom_price or 0.0)
+    else:
+        gross = DELIVERY_RATES.get(delivery_type, 8.00)
+    
     net = round(gross - PLATFORM_FEE, 2)
-    return {"km_bracket": matched[0], "gross_price": gross, "platform_fee": PLATFORM_FEE, "net_courier": net, "estimated_min": matched[2]}
+    return {
+        "delivery_type": delivery_type,
+        "gross_price": gross,
+        "platform_fee": PLATFORM_FEE,
+        "net_courier": net
+    }
 
 def haversine_km(lat1, lon1, lat2, lon2):
     R = 6371.0
@@ -445,24 +445,19 @@ async def me(user: dict = Depends(get_current_user)):
     return {"user": user_to_public(user)}
 
 @api.get("/pricing/table")
+@api.get("/pricing/table")
 async def pricing_table():
-    return {"table": [{"km": r[0], "price": r[1], "time_min": r[2]} for r in PRICING_TABLE], "platform_fee": PLATFORM_FEE}
+    return {
+        "rates": DELIVERY_RATES,
+        "platform_fee": PLATFORM_FEE
+    }
 
 @api.post("/pricing/quote")
-async def quote(body: QuoteIn):
-    km = body.distance_km
-    geocoded = False
-    if km is None and body.pickup_address and body.dropoff_address:
-        a = geocode_address(body.pickup_address)
-        b = geocode_address(body.dropoff_address)
-        if a and b:
-            km = round(haversine_km(a[0], a[1], b[0], b[1]) * 1.35, 2)
-            geocoded = True
-    if km is None:
-        raise HTTPException(400, "Informe distance_km ou endereços válidos.")
-    p = price_from_km(km)
-    return {"distance_km": km, "geocoded": geocoded, **p}
-
+async def quote(body: dict):
+    delivery_type = body.get("delivery_type", "cidade")
+    custom_price = body.get("custom_price")
+    pricing = calculate_delivery_price(delivery_type, custom_price)
+    return pricing
 def delivery_to_public(d: dict) -> dict:
     return {
         "id": str(d["_id"]),
@@ -492,24 +487,10 @@ def delivery_to_public(d: dict) -> dict:
 async def next_delivery_code() -> str:
     return f"DEL-{datetime.now().strftime('%y%m%d')}-{uuid.uuid4().hex[:5].upper()}"
 
-@api.post("/deliveries")
-async def create_delivery(body: DeliveryIn, user: dict = Depends(require_roles("store"))):
-    ops = await get_ops()
-    is_open, reason = check_system_open(ops)
-    if not is_open:
-        raise HTTPException(400, reason or "Sistema fechado.")
-    km = body.distance_km
-    geocoded = False
-    if km is None:
-        a = geocode_address(body.pickup_address)
-        b = geocode_address(body.dropoff_address)
-        if a and b:
-            km = round(haversine_km(a[0], a[1], b[0], b[1]) * 1.35, 2)
-            geocoded = True
-        else:
-            raise HTTPException(400, "Não foi possível calcular a distância. Informe distance_km ou endereços mais completos.")
-    p = price_from_km(km)
 
+    p = calculate_delivery_price(delivery_type, custom_price)
+    km = getattr(body, "distance_km", 0.0) or 0.0
+    geocoded = False
     batch_id = body.batch_id
     if batch_id:
         count = await db.deliveries.count_documents({"batch_id": batch_id, "store_id": str(user["_id"])})
@@ -528,15 +509,16 @@ async def create_delivery(body: DeliveryIn, user: dict = Depends(require_roles("
         "client_name": body.client_name,
         "client_phone": body.client_phone,
         "distance_km": km,
+        "delivery_type": p["delivery_type"],
         "gross_price": p["gross_price"],
         "platform_fee": p["platform_fee"],
         "net_courier": p["net_courier"],
-        "estimated_min": p["estimated_min"],
+        "estimated_min": 15,
         "status": "pending",
         "courier_id": None,
         "courier_name": None,
         "batch_id": batch_id,
-        "notes": body.notes,
+        "notes": getattr(body, "notes", ""),
         "allow_batch": bool(user.get("allow_batch", True)),
         "created_at": now_iso(),
         "geocoded": geocoded,
@@ -544,6 +526,7 @@ async def create_delivery(body: DeliveryIn, user: dict = Depends(require_roles("
     r = await db.deliveries.insert_one(doc)
     doc["_id"] = r.inserted_id
     return delivery_to_public(doc)
+
 
 @api.get("/deliveries")
 async def list_deliveries(status: Optional[str] = None, user: dict = Depends(get_current_user)):
@@ -923,38 +906,3 @@ async def admin_get_ops(user: dict = Depends(require_roles("admin"))):
 @api.put("/admin/settings/operations")
 async def admin_set_ops(body: OperationsSettingsIn, user: dict = Depends(require_roles("admin"))):
     curr = await get_ops()
-    upd = {k: v for k, v in body.dict().items() if v is not None}
-    # validate weekdays
-    if "disabled_weekdays" in upd:
-        upd["disabled_weekdays"] = sorted({int(x) for x in upd["disabled_weekdays"] if 0 <= int(x) <= 6})
-    # validate holiday format
-    if "holidays" in upd:
-        valid = []
-        for h in upd["holidays"]:
-            try:
-                datetime.strptime(h, "%Y-%m-%d")
-                valid.append(h)
-            except Exception:
-                pass
-        upd["holidays"] = sorted(set(valid))
-    if "open_time" in upd and not _parse_hhmm(upd["open_time"]):
-        raise HTTPException(400, "open_time inválido (HH:MM)")
-    if "close_time" in upd and not _parse_hhmm(upd["close_time"]):
-        raise HTTPException(400, "close_time inválido (HH:MM)")
-    merged = {**curr, **upd}
-    await db.admin_settings.update_one({"_id": "settings"}, {"$set": {"operations": merged}}, upsert=True)
-    return merged
-
-@api.get("/")
-async def root():
-    return {"service": "giroexpress", "status": "ok"}
-
-app.include_router(api)
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=CORS_ORIGINS or ["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)

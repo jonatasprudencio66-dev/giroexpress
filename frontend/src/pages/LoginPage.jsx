@@ -73,11 +73,6 @@ export default function LoginPage() {
           <p className="text-sm text-slate-400 text-center">
             Não tem conta? <Link to="/register" className="text-orange-400 font-bold hover:underline" data-testid="link-register">Cadastre sua loja ou moto</Link>
           </p>
-
-          <div className="text-xs text-slate-500 bg-slate-900/60 border border-slate-800 p-3 rounded-xl">
-            <p className="font-bold text-slate-400 mb-1">Admin master (demonstração):</p>
-            <p>admin@giroexpress.com • Admin@2026</p>
-          </div>
         </div>
       </div>
     </div>

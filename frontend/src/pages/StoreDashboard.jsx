@@ -4,7 +4,7 @@ import ChatModal from "@/components/ChatModal";
 import TicketModal from "@/components/TicketModal";
 import { useAuth } from "@/context/AuthContext";
 import { api, apiError, API_BASE } from "@/lib/api";
-import { priceFromKm, formatBRL, PLATFORM_FEE } from "@/lib/pricing";
+import { formatBRL, PLATFORM_FEE } from "@/lib/pricing";
 import { toast } from "sonner";
 import { Plus, MapPin, MessageSquare, Headphones, Upload, FileText, Loader2, X, CheckSquare, Package, DollarSign, ExternalLink, AlertTriangle } from "lucide-react";
 
@@ -215,30 +215,36 @@ function NewDeliveryModal({ user, onClose, onCreated }) {
   const [dropoff, setDropoff] = useState("");
   const [clientName, setClientName] = useState("");
   const [clientPhone, setClientPhone] = useState("");
-  const [distance, setDistance] = useState(3.0);
-  const [autoCalc, setAutoCalc] = useState(true);
+  const [zoneType, setZoneType] = useState("cidade");
+  const [customPrice, setCustomPrice] = useState("");
   const [busy, setBusy] = useState(false);
-  const [quote, setQuote] = useState(null);
-  const [quoting, setQuoting] = useState(false);
-  const preview = priceFromKm(distance);
 
-  const runQuote = async () => {
-    if (!autoCalc || !pickup || !dropoff) return;
-    setQuoting(true);
-    try {
-      const { data } = await api.post("/pricing/quote", { pickup_address: pickup, dropoff_address: dropoff });
-      setQuote(data);
-      setDistance(data.distance_km);
-    } catch (e) { setQuote(null); }
-    finally { setQuoting(false); }
+  // Tabela de preços fixa por região selecionada
+  const pricesMap = {
+    cidade: 8.00,
+    condominio_cidade: 10.00,
+    condominio_proximo: 12.00,
+    condominio_bosque: 15.00,
+    condominio_afastado: 20.00,
+    personalizado: customPrice ? Number(customPrice) : 0
   };
+
+  const grossPrice = pricesMap[zoneType] || 8.00;
+  const netCourier = Math.max(0, grossPrice - PLATFORM_FEE);
 
   const submit = async (e) => {
     e.preventDefault();
     setBusy(true);
     try {
-      const body = { pickup_address: pickup, dropoff_address: dropoff, client_name: clientName, client_phone: clientPhone };
-      if (!autoCalc) body.distance_km = Number(distance);
+      const body = { 
+        pickup_address: pickup, 
+        dropoff_address: dropoff, 
+        client_name: clientName, 
+        client_phone: clientPhone,
+        delivery_type: zoneType,
+        custom_price: zoneType === "personalizado" ? Number(customPrice) : null,
+        gross_price: grossPrice
+      };
       const { data } = await api.post("/deliveries", body);
       toast.success(`Corrida ${data.code} criada! ${formatBRL(data.gross_price)}`);
       onCreated();
@@ -257,12 +263,42 @@ function NewDeliveryModal({ user, onClose, onCreated }) {
 
         <form onSubmit={submit} className="space-y-4 text-sm">
           <div>
+            <label className="text-xs text-slate-400 block mb-1 font-semibold">Região / Tipo de Entrega</label>
+            <select 
+              value={zoneType} 
+              onChange={(e) => setZoneType(e.target.value)}
+              className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-white focus:outline-none focus:border-orange-500"
+            >
+              <option value="cidade">Entregas dentro da cidade (R$ 8,00)</option>
+              <option value="condominio_cidade">Entregas condomínio dentro da cidade (R$ 10,00)</option>
+              <option value="condominio_proximo">Entregas condomínios próximo a cidade - Raízes e Botânico (R$ 12,00)</option>
+              <option value="condominio_bosque">Entregas Condomínio Reserva do Bosque (R$ 15,00)</option>
+              <option value="condominio_afastado">Entregas condomínios afastados - Bella Vitta e Garden RNI (R$ 20,00)</option>
+              <option value="personalizado">Personalizado (Outro valor)</option>
+            </select>
+          </div>
+
+          {zoneType === "personalizado" && (
+            <div>
+              <label className="text-xs text-slate-400 block mb-1 font-semibold">Valor Personalizado (R$)</label>
+              <input 
+                type="number" 
+                step="0.01" 
+                placeholder="Ex: 25.00" 
+                value={customPrice} 
+                onChange={(e) => setCustomPrice(e.target.value)} 
+                className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-white focus:outline-none focus:border-orange-500" 
+              />
+            </div>
+          )}
+
+          <div>
             <label className="text-xs text-slate-400 block mb-1 font-semibold">Endereço de Retirada (Loja)</label>
-            <input data-testid="pickup-address" required value={pickup} onChange={(e) => setPickup(e.target.value)} onBlur={runQuote} className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-white focus:outline-none focus:border-orange-500" />
+            <input data-testid="pickup-address" required value={pickup} onChange={(e) => setPickup(e.target.value)} className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-white focus:outline-none focus:border-orange-500" />
           </div>
           <div>
             <label className="text-xs text-slate-400 block mb-1 font-semibold">Endereço de Entrega (Cliente Final)</label>
-            <input data-testid="dropoff-address" required value={dropoff} onChange={(e) => setDropoff(e.target.value)} onBlur={runQuote} placeholder="Ex: Rua Augusta, 1500 - São Paulo" className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-white focus:outline-none focus:border-orange-500" />
+            <input data-testid="dropoff-address" required value={dropoff} onChange={(e) => setDropoff(e.target.value)} placeholder="Ex: Rua Augusta, 1500 - São Paulo" className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-white focus:outline-none focus:border-orange-500" />
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
@@ -275,27 +311,10 @@ function NewDeliveryModal({ user, onClose, onCreated }) {
             </div>
           </div>
 
-          <label className="flex items-center space-x-2 bg-slate-950 p-2.5 rounded-xl border border-slate-800">
-            <input data-testid="auto-calc-toggle" type="checkbox" checked={autoCalc} onChange={(e) => setAutoCalc(e.target.checked)} className="w-4 h-4 accent-orange-500" />
-            <span className="text-xs text-slate-300 font-semibold">Calcular distância automaticamente (geocoding real dos endereços)</span>
-          </label>
-
-          {!autoCalc && (
-            <div>
-              <div className="flex justify-between text-xs mb-1">
-                <span className="text-slate-400">Distância (raio):</span>
-                <span className="font-mono font-bold text-orange-400">{distance} km</span>
-              </div>
-              <input data-testid="distance-slider" type="range" min="0.5" max="15" step="0.5" value={distance} onChange={(e) => setDistance(Number(e.target.value))} className="w-full accent-orange-500 cursor-pointer" />
-            </div>
-          )}
-
           <div className="bg-slate-950 border border-slate-800 p-4 rounded-xl space-y-2 text-xs">
-            {autoCalc && quoting && <p className="text-slate-400 flex items-center space-x-2"><Loader2 className="w-3 h-3 animate-spin" /><span>Calculando distância real...</span></p>}
-            {autoCalc && quote && <p className="text-emerald-400 text-xs">✓ Distância calculada: <b>{quote.distance_km} km</b> {quote.geocoded && "(via OpenStreetMap)"}</p>}
-            <div className="flex justify-between"><span className="text-slate-400">Valor bruto:</span><span className="font-mono font-bold text-white">{formatBRL(quote?.gross_price ?? preview.grossPrice)}</span></div>
+            <div className="flex justify-between"><span className="text-slate-400">Valor bruto:</span><span className="font-mono font-bold text-white">{formatBRL(grossPrice)}</span></div>
             <div className="flex justify-between"><span className="text-slate-400">Taxa admin:</span><span className="font-mono font-bold text-rose-400">- {formatBRL(PLATFORM_FEE)}</span></div>
-            <div className="flex justify-between border-t border-slate-800 pt-2"><span className="text-slate-300 font-semibold">Líquido motoboy:</span><span className="font-mono font-bold text-emerald-400">{formatBRL(quote?.net_courier ?? preview.netCourier)}</span></div>
+            <div className="flex justify-between border-t border-slate-800 pt-2"><span className="text-slate-300 font-semibold">Líquido motoboy:</span><span className="font-mono font-bold text-emerald-400">{formatBRL(netCourier)}</span></div>
           </div>
 
           <div className="flex justify-end space-x-3 pt-2">
