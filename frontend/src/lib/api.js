@@ -1,7 +1,7 @@
 import axios from "axios";
 
-// Usa a variável do .env se existir, ou localhost:8000 como padrão
-export const BASE = process.env.REACT_APP_API_URL || "http://localhost:8000";
+// Usa a variável de ambiente se existir, ou aponta direto para a Vercel
+export const BASE = process.env.REACT_APP_API_URL || "https://giroexpress-9ufp.vercel.app";
 export const API_BASE = BASE;
 
 export const api = axios.create({
