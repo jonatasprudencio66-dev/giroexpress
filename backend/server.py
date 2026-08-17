@@ -278,13 +278,16 @@ app = FastAPI(title="GiroExpress API")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=CORS_ORIGINS,
+    allow_origins=[
+        "https://giroexpress-xq89.vercel.app",
+        "http://localhost:3000",
+        "http://localhost:5173",
+    ],
     allow_origin_regex=r"https://.*\.ngrok-free\.app",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
 api = APIRouter(prefix="/api")
 app.include_router(api)
 
