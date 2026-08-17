@@ -30,7 +30,7 @@ JWT_ALG = "HS256"
 ADMIN_EMAIL = os.environ["ADMIN_EMAIL"].lower()
 ADMIN_PASSWORD = os.environ["ADMIN_PASSWORD"]
 ADMIN_NAME = os.environ.get("ADMIN_NAME", "Admin")
-CORS_ORIGINS = [o.strip() for o in os.environ.get("CORS_ORIGINS", "*").split(",") if o.strip()]
+CORS_ORIGINS = ["http://localhost:3000", "http://localhost:3001", "http://127.0.0.1:3000", "http://127.0.0.1:3001", "http://192.168.0.110:3000", "http://192.168.0.110:3001"]
 APP_NAME = os.environ.get("APP_NAME", "giroexpress")
 PLATFORM_FEE = 1.00
 
@@ -275,7 +275,18 @@ async def get_ops():
     return {**DEFAULT_OPS, **(s.get("operations") or {})}
 
 app = FastAPI(title="GiroExpress API")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=CORS_ORIGINS,
+    allow_origin_regex=r"https://.*\.ngrok-free\.app",
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 api = APIRouter(prefix="/api")
+app.include_router(api)
 
 class RegisterIn(BaseModel):
     name: str
@@ -906,3 +917,5 @@ async def admin_get_ops(user: dict = Depends(require_roles("admin"))):
 @api.put("/admin/settings/operations")
 async def admin_set_ops(body: OperationsSettingsIn, user: dict = Depends(require_roles("admin"))):
     curr = await get_ops()
+
+app.include_router(api)

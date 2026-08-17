@@ -1,7 +1,8 @@
 import axios from "axios";
 
-export const BASE = "http://192.168.0.110:8002";
-export const API_BASE = BASE; // Adicionado para resolver o erro nas páginas
+// Usa a variável do .env se existir, ou localhost:8000 como padrão
+export const BASE = process.env.REACT_APP_API_URL || "http://localhost:8000";
+export const API_BASE = BASE;
 
 export const api = axios.create({
   baseURL: `${BASE}/api`,
