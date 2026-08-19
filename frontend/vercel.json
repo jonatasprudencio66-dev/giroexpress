@@ -1,4 +1,19 @@
 {
-  "buildCommand": "npm run build",
-  "outputDirectory": "build"
+  "version": 2,
+  "builds": [
+    {
+      "src": "backend/server.py",
+      "use": "@vercel/python"
+    }
+  ],
+  "routes": [
+    {
+      "src": "/api/(.*)",
+      "destination": "backend/server.py"
+    },
+    {
+      "src": "/(.*)",
+      "destination": "backend/server.py"
+    }
+  ]
 }
