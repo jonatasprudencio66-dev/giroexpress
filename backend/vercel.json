@@ -1,13 +1,5 @@
 {
-  "functions": {
-    "server.py": {
-      "runtime": "vercel-python@3.0"
-    }
-  },
-  "routes": [
-    {
-      "src": "/(.*)",
-      "dest": "server.py"
-    }
+  "rewrites": [
+    { "source": "/(.*)", "destination": "/index.html" }
   ]
 }
