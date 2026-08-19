@@ -4,7 +4,7 @@ import ChatModal from "@/components/ChatModal";
 import TicketModal from "@/components/TicketModal";
 import { useAuth } from "@/context/AuthContext";
 import { api, apiError, API_BASE } from "@/lib/api";
-import { formatBRL, PLATFORM_FEE } from "@/lib/pricing";
+import { formatBRL } from "@/lib/pricing";
 import { toast } from "sonner";
 import { Plus, MapPin, MessageSquare, Headphones, Upload, FileText, Loader2, X, CheckSquare, Package, DollarSign, ExternalLink, AlertTriangle } from "lucide-react";
 
@@ -78,7 +78,7 @@ export default function StoreDashboard() {
 
       <section className="bg-slate-900 border border-slate-800 rounded-2xl p-6">
         <h3 className="font-bold text-lg text-white mb-4 flex items-center space-x-2"><FileText className="w-5 h-5 text-orange-400" /><span>Fechamento Semanal &amp; Comprovantes</span></h3>
-        <StatementsList statements={statements} onChanged={load} />
+        <StatementsList statements={statements} onChanged={load} user={user} />
       </section>
 
       <section className="bg-slate-900 border border-slate-800 rounded-2xl p-6">
@@ -155,16 +155,16 @@ function DeliveriesTable({ deliveries, onChat, onTicket }) {
   );
 }
 
-function StatementsList({ statements, onChanged }) {
+function StatementsList({ statements, onChanged, user }) {
   if (!statements.length) return <p className="text-sm text-slate-400">Ainda não há fechamento gerado. Assim que a primeira entrega for concluída, o extrato semanal é criado automaticamente.</p>;
   return (
     <div className="space-y-3">
-      {statements.map((s) => <StatementRow key={s.id} s={s} onChanged={onChanged} />)}
+      {statements.map((s) => <StatementRow key={s.id} s={s} onChanged={onChanged} user={user} />)}
     </div>
   );
 }
 
-function StatementRow({ s, onChanged }) {
+function StatementRow({ s, onChanged, user }) {
   const [uploading, setUploading] = useState(false);
   const label = { open: "EM ABERTO", under_review: "COMPROVANTE ENVIADO", approved: "APROVADO", rejected: "REJEITADO" }[s.status] || s.status;
   const badge = { open: "bg-slate-800 text-slate-300", under_review: "bg-amber-500/20 text-amber-400", approved: "bg-emerald-500/20 text-emerald-400", rejected: "bg-rose-500/20 text-rose-400" }[s.status];
@@ -184,11 +184,16 @@ function StatementRow({ s, onChanged }) {
     finally { setUploading(false); }
   };
 
+  const isStore = user?.role === "store";
+
   return (
     <div className="bg-slate-950 border border-slate-800 p-4 rounded-xl flex flex-wrap items-center justify-between gap-3" data-testid={`statement-${s.id}`}>
       <div>
         <p className="text-xs bg-slate-800 px-2 py-0.5 rounded inline-block text-slate-300 font-mono">{s.cycle_label}</p>
-        <p className="text-sm text-white font-semibold mt-1">Total: {formatBRL(s.total_gross)} · {s.total_deliveries} entregas</p>
+        <p className="text-sm text-white font-semibold mt-1">
+          {!isStore && `Total: ${formatBRL(s.total_gross)} · `}
+          {s.total_deliveries} entregas
+        </p>
         {s.due_date && <p className="text-xs text-slate-400">Vencimento: {new Date(s.due_date).toLocaleDateString("pt-BR")}</p>}
       </div>
       <div className="flex items-center space-x-3">
@@ -219,7 +224,6 @@ function NewDeliveryModal({ user, onClose, onCreated }) {
   const [customPrice, setCustomPrice] = useState("");
   const [busy, setBusy] = useState(false);
 
-  // Tabela de preços fixa por região selecionada
   const pricesMap = {
     cidade: 8.00,
     condominio_cidade: 10.00,
@@ -230,7 +234,6 @@ function NewDeliveryModal({ user, onClose, onCreated }) {
   };
 
   const grossPrice = pricesMap[zoneType] || 8.00;
-  const netCourier = Math.max(0, grossPrice - PLATFORM_FEE);
 
   const submit = async (e) => {
     e.preventDefault();
@@ -246,7 +249,7 @@ function NewDeliveryModal({ user, onClose, onCreated }) {
         gross_price: grossPrice
       };
       const { data } = await api.post("/deliveries", body);
-      toast.success(`Corrida ${data.code} criada! ${formatBRL(data.gross_price)}`);
+      toast.success(`Corrida ${data.code} criada!`);
       onCreated();
       onClose();
     } catch (ex) { toast.error(apiError(ex)); }
@@ -309,12 +312,6 @@ function NewDeliveryModal({ user, onClose, onCreated }) {
               <label className="text-xs text-slate-400 block mb-1 font-semibold">Telefone (opcional)</label>
               <input value={clientPhone} onChange={(e) => setClientPhone(e.target.value)} className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-white focus:outline-none focus:border-orange-500" />
             </div>
-          </div>
-
-          <div className="bg-slate-950 border border-slate-800 p-4 rounded-xl space-y-2 text-xs">
-            <div className="flex justify-between"><span className="text-slate-400">Valor bruto:</span><span className="font-mono font-bold text-white">{formatBRL(grossPrice)}</span></div>
-            <div className="flex justify-between"><span className="text-slate-400">Taxa admin:</span><span className="font-mono font-bold text-rose-400">- {formatBRL(PLATFORM_FEE)}</span></div>
-            <div className="flex justify-between border-t border-slate-800 pt-2"><span className="text-slate-300 font-semibold">Líquido motoboy:</span><span className="font-mono font-bold text-emerald-400">{formatBRL(netCourier)}</span></div>
           </div>
 
           <div className="flex justify-end space-x-3 pt-2">
