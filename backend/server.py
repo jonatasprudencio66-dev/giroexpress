@@ -16,7 +16,7 @@ import requests
 from bson import ObjectId
 from fastapi import FastAPI, APIRouter, HTTPException, Request, Response, Depends, UploadFile, File, Query, Header
 from fastapi.responses import Response as FastAPIResponse
-from starlette.middleware.base import BaseHTTPMiddleware
+from fastapi.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
 from pydantic import BaseModel, EmailStr, Field
 
@@ -173,24 +173,14 @@ async def clear_attempts(identifier: str):
 
 app = FastAPI(title="GiroExpress API")
 
-# Middleware customizado infalível para OPTIONS e CORS
-class CustomCORSMiddleware(BaseHTTPMiddleware):
-    async def dispatch(self, request: Request, call_next):
-        origin = request.headers.get("origin", "")
-        if request.method == "OPTIONS":
-            response = Response(status_code=200)
-            response.headers["Access-Control-Allow-Origin"] = origin if origin else "*"
-            response.headers["Access-Control-Allow-Credentials"] = "true"
-            response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS, PATCH"
-            response.headers["Access-Control-Allow-Headers"] = "*"
-            return response
-        
-        response = await call_next(request)
-        response.headers["Access-Control-Allow-Origin"] = origin if origin else "*"
-        response.headers["Access-Control-Allow-Credentials"] = "true"
-        return response
-
-app.add_middleware(CustomCORSMiddleware)
+# Configuração robusta e nativa de CORS do FastAPI (Resolve erros de OPTIONS/Preflight)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 api = APIRouter(prefix="/api")
 
@@ -379,7 +369,7 @@ async def list_deliveries(status: Optional[str] = None, user: dict = Depends(get
     docs = await db.deliveries.find(q).sort("created_at", -1).to_list(500)
     return [delivery_to_public(d) for d in docs]
 
-# Rotas diretas na raiz para garantir compatibilidade com o front-end
+# Rotas diretas na raiz para garantir compatibilidade total com o front-end
 @app.get("/me")
 @app.get("/auth/me")
 @app.get("/api/me")
