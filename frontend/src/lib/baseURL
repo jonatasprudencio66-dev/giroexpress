@@ -1,7 +1,7 @@
 import axios from "axios";
 
 // Aponta diretamente para a URL do seu backend na Vercel
-export const BASE = "https://giroexpress-9ufp.vercel.app";
+export const BASE = "https://giroexpress-production.up.railway.app";
 export const API_BASE = BASE;
 
 export const api = axios.create({
