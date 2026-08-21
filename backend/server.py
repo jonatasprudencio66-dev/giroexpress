@@ -16,7 +16,7 @@ import requests
 from bson import ObjectId
 from fastapi import FastAPI, APIRouter, HTTPException, Request, Response, Depends, UploadFile, File, Query, Header
 from fastapi.responses import Response as FastAPIResponse
-from starlette.middleware.cors import CORSMiddleware
+from starlette.middleware.base import BaseHTTPMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
 from pydantic import BaseModel, EmailStr, Field
 
@@ -195,16 +195,32 @@ async def register_failed(identifier: str):
 async def clear_attempts(identifier: str):
     await db.login_attempts.delete_one({"_id": identifier})
 
-app = FastAPI(title="GiroExpress API")
+# Middleware customizado robusto para requisições OPTIONS e CORS
+class CustomCORSMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        if request.method == "OPTIONS":
+            response = Response()
+            origin = request.headers.get("origin", "")
+            if origin:
+                response.headers["Access-Control-Allow-Origin"] = origin
+            else:
+                response.headers["Access-Control-Allow-Origin"] = "*"
+            response.headers["Access-Control-Allow-Credentials"] = "true"
+            response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS, PATCH"
+            response.headers["Access-Control-Allow-Headers"] = "*"
+            return response
+        
+        response = await call_next(request)
+        origin = request.headers.get("origin", "")
+        if origin:
+            response.headers["Access-Control-Allow-Origin"] = origin
+        else:
+            response.headers["Access-Control-Allow-Origin"] = "*"
+        response.headers["Access-Control-Allow-Credentials"] = "true"
+        return response
 
-# Liberação de CORS completa e suporte a credentials
-app.add_middleware(
-    CORSMiddleware,
-    allow_origin_regex=r"https://(.*\.)?vercel\.app|http://localhost:\d+|http://127.0.0.1:\d+",
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+app = FastAPI(title="GiroExpress API")
+app.add_middleware(CustomCORSMiddleware)
 
 api = APIRouter(prefix="/api")
 
@@ -256,8 +272,6 @@ async def startup():
 async def shutdown():
     client.close()
 
-# --- LÓGICA INTERNA DE AUTENTICAÇÃO ---
-
 async def _do_register(body: RegisterIn, response: Response):
     if body.role not in ("store", "courier"):
         raise HTTPException(400, "Role must be 'store' or 'courier'")
@@ -301,8 +315,6 @@ async def _do_login(body: LoginIn, request: Request, response: Response):
     refresh = make_refresh(str(u["_id"]))
     set_auth_cookies(response, access, refresh)
     return {"user": user_to_public(u), "access_token": access}
-
-# --- ROTAS DENTRO DO ROUTER /api ---
 
 @api.post("/auth/register")
 async def register_api(body: RegisterIn, response: Response):
@@ -400,8 +412,6 @@ async def list_deliveries(status: Optional[str] = None, user: dict = Depends(get
     docs = await db.deliveries.find(q).sort("created_at", -1).to_list(500)
     return [delivery_to_public(d) for d in docs]
 
-# --- ROTAS DIRETAS NA RAIZ (Garante que se o front chamar sem /api funcione) ---
-
 @app.get("/me")
 @app.get("/auth/me")
 @app.get("/api/me")
@@ -431,5 +441,4 @@ async def logout_direct(response: Response):
     clear_auth_cookies(response)
     return {"ok": True}
 
-# --- INCLUSÃO DO ROUTER PRINCIPAL ---
 app.include_router(api)
