@@ -51,24 +51,6 @@ def init_storage(force: bool = False):
     storage_key = resp.json()["storage_key"]
     return storage_key
 
-def put_object(path: str, data: bytes, content_type: str) -> dict:
-    key = init_storage()
-    resp = requests.put(f"{STORAGE_URL}/objects/{path}", headers={"X-Storage-Key": key, "Content-Type": content_type}, data=data, timeout=120)
-    if resp.status_code == 404:
-        key = init_storage(force=True)
-        resp = requests.put(f"{STORAGE_URL}/objects/{path}", headers={"X-Storage-Key": key, "Content-Type": content_type}, data=data, timeout=120)
-    resp.raise_for_status()
-    return resp.json()
-
-def get_object(path: str):
-    key = init_storage()
-    resp = requests.get(f"{STORAGE_URL}/objects/{path}", headers={"X-Storage-Key": key}, timeout=60)
-    if resp.status_code == 404:
-        key = init_storage(force=True)
-        resp = requests.get(f"{STORAGE_URL}/objects/{path}", headers={"X-Storage-Key": key}, timeout=60)
-    resp.raise_for_status()
-    return resp.content, resp.headers.get("Content-Type", "application/octet-stream")
-
 DELIVERY_RATES = {
     "cidade": 8.00,
     "condominio_cidade": 10.00,
@@ -165,12 +147,6 @@ def require_roles(*roles):
         return user
     return dep
 
-def oid(v: str) -> ObjectId:
-    try:
-        return ObjectId(v)
-    except Exception:
-        raise HTTPException(400, "ID inválido")
-
 LOCKOUT_MAX = 5
 LOCKOUT_MIN = 15
 
@@ -195,31 +171,25 @@ async def register_failed(identifier: str):
 async def clear_attempts(identifier: str):
     await db.login_attempts.delete_one({"_id": identifier})
 
-# Middleware customizado robusto para requisições OPTIONS e CORS
+app = FastAPI(title="GiroExpress API")
+
+# Middleware customizado infalível para OPTIONS e CORS
 class CustomCORSMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
+        origin = request.headers.get("origin", "")
         if request.method == "OPTIONS":
-            response = Response()
-            origin = request.headers.get("origin", "")
-            if origin:
-                response.headers["Access-Control-Allow-Origin"] = origin
-            else:
-                response.headers["Access-Control-Allow-Origin"] = "*"
+            response = Response(status_code=200)
+            response.headers["Access-Control-Allow-Origin"] = origin if origin else "*"
             response.headers["Access-Control-Allow-Credentials"] = "true"
             response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS, PATCH"
             response.headers["Access-Control-Allow-Headers"] = "*"
             return response
         
         response = await call_next(request)
-        origin = request.headers.get("origin", "")
-        if origin:
-            response.headers["Access-Control-Allow-Origin"] = origin
-        else:
-            response.headers["Access-Control-Allow-Origin"] = "*"
+        response.headers["Access-Control-Allow-Origin"] = origin if origin else "*"
         response.headers["Access-Control-Allow-Credentials"] = "true"
         return response
 
-app = FastAPI(title="GiroExpress API")
 app.add_middleware(CustomCORSMiddleware)
 
 api = APIRouter(prefix="/api")
@@ -252,10 +222,7 @@ async def startup():
     await db.users.create_index("email", unique=True)
     await db.deliveries.create_index([("store_id", 1), ("created_at", -1)])
     await db.deliveries.create_index([("courier_id", 1), ("created_at", -1)])
-    await db.statements.create_index([("store_id", 1), ("period_start", -1)])
-    await db.tickets.create_index([("created_at", -1)])
-    await db.chat_messages.create_index([("delivery_id", 1), ("created_at", 1)])
-
+    
     existing = await db.users.find_one({"email": ADMIN_EMAIL})
     if not existing:
         await db.users.insert_one({
@@ -412,6 +379,7 @@ async def list_deliveries(status: Optional[str] = None, user: dict = Depends(get
     docs = await db.deliveries.find(q).sort("created_at", -1).to_list(500)
     return [delivery_to_public(d) for d in docs]
 
+# Rotas diretas na raiz para garantir compatibilidade com o front-end
 @app.get("/me")
 @app.get("/auth/me")
 @app.get("/api/me")
