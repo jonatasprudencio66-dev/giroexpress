@@ -208,7 +208,7 @@ def cycle_label(start: datetime, end: datetime) -> str:
 
 app = FastAPI(title="GiroExpress API")
 
-# Liberação completa de CORS para aceitar qualquer subdomínio da Vercel e localhost
+# Liberação de CORS completa e suporte a credentials
 app.add_middleware(
     CORSMiddleware,
     allow_origin_regex=r"https://(.*\.)?vercel\.app|http://localhost:\d+|http://127.0.0.1:\d+",
@@ -218,7 +218,6 @@ app.add_middleware(
 )
 
 api = APIRouter(prefix="/api")
-app.include_router(api)
 
 class RegisterIn(BaseModel):
     name: str
@@ -274,8 +273,9 @@ async def startup():
 async def shutdown():
     client.close()
 
-@api.post("/auth/register")
-async def register(body: RegisterIn, response: Response):
+# --- FUNÇÕES DE AUTENTICAÇÃO REUTILIZÁVEIS ---
+
+async def _do_register(body: RegisterIn, response: Response):
     if body.role not in ("store", "courier"):
         raise HTTPException(400, "Role must be 'store' or 'courier'")
     email = body.email.lower()
@@ -301,8 +301,7 @@ async def register(body: RegisterIn, response: Response):
     set_auth_cookies(response, access, refresh)
     return {"user": user_to_public(doc), "access_token": access}
 
-@api.post("/auth/login")
-async def login(body: LoginIn, request: Request, response: Response):
+async def _do_login(body: LoginIn, request: Request, response: Response):
     email = body.email.lower()
     xff = request.headers.get("x-forwarded-for", "")
     ip = xff.split(",")[0].strip() if xff else (request.client.host if request.client else "unknown")
@@ -320,14 +319,49 @@ async def login(body: LoginIn, request: Request, response: Response):
     set_auth_cookies(response, access, refresh)
     return {"user": user_to_public(u), "access_token": access}
 
+# --- ROTAS DA API COM PREFIXO /api ---
+
+@api.post("/auth/register")
+async def register_api(body: RegisterIn, response: Response):
+    return await _do_register(body, response)
+
+@api.post("/auth/login")
+async def login_api(body: LoginIn, request: Request, response: Response):
+    return await _do_login(body, request, response)
+
 @api.post("/auth/logout")
-async def logout(response: Response):
+async def logout_api(response: Response):
     clear_auth_cookies(response)
     return {"ok": True}
 
 @api.get("/auth/me")
-async def me(user: dict = Depends(get_current_user)):
+async def me_api(user: dict = Depends(get_current_user)):
     return {"user": user_to_public(user)}
+
+# --- ROTAS ALIAS/DIRETAS (Evita 404 caso o front chame sem /api) ---
+
+@app.get("/me")
+@app.get("/auth/me")
+async def me_direct(user: dict = Depends(get_current_user)):
+    return {"user": user_to_public(user)}
+
+@app.post("/login")
+@app.post("/auth/login")
+async def login_direct(body: LoginIn, request: Request, response: Response):
+    return await _do_login(body, request, response)
+
+@app.post("/register")
+@app.post("/auth/register")
+async def register_direct(body: RegisterIn, response: Response):
+    return await _do_register(body, response)
+
+@app.post("/logout")
+@app.post("/auth/logout")
+async def logout_direct(response: Response):
+    clear_auth_cookies(response)
+    return {"ok": True}
+
+# --- OUTRAS ROTAS ---
 
 @api.get("/pricing/table")
 async def pricing_table():
@@ -407,3 +441,6 @@ async def list_deliveries(status: Optional[str] = None, user: dict = Depends(get
         q["status"] = status
     docs = await db.deliveries.find(q).sort("created_at", -1).to_list(500)
     return [delivery_to_public(d) for d in docs]
+
+# Inclusão final do router da API na aplicação FastAPI
+app.include_router(api)
