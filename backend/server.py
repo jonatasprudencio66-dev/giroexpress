@@ -173,7 +173,6 @@ async def clear_attempts(identifier: str):
 
 app = FastAPI(title="GiroExpress API")
 
-# Configuração robusta e nativa de CORS do FastAPI (Resolve erros de OPTIONS/Preflight)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -273,6 +272,7 @@ async def _do_login(body: LoginIn, request: Request, response: Response):
     set_auth_cookies(response, access, refresh)
     return {"user": user_to_public(u), "access_token": access}
 
+# Rotas dentro do APIRouter (/api/...)
 @api.post("/auth/register")
 async def register_api(body: RegisterIn, response: Response):
     return await _do_register(body, response)
@@ -369,7 +369,9 @@ async def list_deliveries(status: Optional[str] = None, user: dict = Depends(get
     docs = await db.deliveries.find(q).sort("created_at", -1).to_list(500)
     return [delivery_to_public(d) for d in docs]
 
-# Rotas diretas na raiz para garantir compatibilidade total com o front-end
+app.include_router(api)
+
+# Espelho na raiz caso qualquer requisição bata fora do /api
 @app.get("/me")
 @app.get("/auth/me")
 @app.get("/api/me")
@@ -398,5 +400,3 @@ async def register_direct(body: RegisterIn, response: Response):
 async def logout_direct(response: Response):
     clear_auth_cookies(response)
     return {"ok": True}
-
-app.include_router(api)
