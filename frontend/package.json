@@ -1,5 +1,5 @@
 "scripts": {
-    "start": "craco start",
-    "build": "CI=false craco build",
-    "test": "craco test"
-  },
+  "start": "craco start",
+  "build": "CI=false craco build",
+  "test": "craco test"
+},
