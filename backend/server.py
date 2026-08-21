@@ -195,17 +195,6 @@ async def register_failed(identifier: str):
 async def clear_attempts(identifier: str):
     await db.login_attempts.delete_one({"_id": identifier})
 
-def current_cycle_bounds(now: datetime = None):
-    now = now or datetime.now(timezone.utc)
-    days_since_sunday = (now.weekday() + 1) % 7
-    start = (now - timedelta(days=days_since_sunday)).replace(hour=0, minute=0, second=0, microsecond=0)
-    end = start + timedelta(days=6, hours=23, minutes=59, seconds=59)
-    due = start + timedelta(days=9, hours=23, minutes=59, seconds=59)
-    return start, end, due
-
-def cycle_label(start: datetime, end: datetime) -> str:
-    return f"Domingo ({start.strftime('%d/%m')}) a Sábado ({end.strftime('%d/%m')})"
-
 app = FastAPI(title="GiroExpress API")
 
 # Liberação de CORS completa e suporte a credentials
@@ -242,12 +231,6 @@ class DeliveryIn(BaseModel):
     batch_id: Optional[str] = None
     notes: Optional[str] = None
 
-class ChatMessageIn(BaseModel):
-    text: str
-
-class ApproveStatementIn(BaseModel):
-    approved: bool
-
 @app.on_event("startup")
 async def startup():
     await db.users.create_index("email", unique=True)
@@ -273,7 +256,7 @@ async def startup():
 async def shutdown():
     client.close()
 
-# --- FUNÇÕES DE AUTENTICAÇÃO REUTILIZÁVEIS ---
+# --- LÓGICA INTERNA DE AUTENTICAÇÃO ---
 
 async def _do_register(body: RegisterIn, response: Response):
     if body.role not in ("store", "courier"):
@@ -319,7 +302,7 @@ async def _do_login(body: LoginIn, request: Request, response: Response):
     set_auth_cookies(response, access, refresh)
     return {"user": user_to_public(u), "access_token": access}
 
-# --- ROTAS DA API COM PREFIXO /api ---
+# --- ROTAS DENTRO DO ROUTER /api ---
 
 @api.post("/auth/register")
 async def register_api(body: RegisterIn, response: Response):
@@ -337,31 +320,6 @@ async def logout_api(response: Response):
 @api.get("/auth/me")
 async def me_api(user: dict = Depends(get_current_user)):
     return {"user": user_to_public(user)}
-
-# --- ROTAS ALIAS/DIRETAS (Evita 404 caso o front chame sem /api) ---
-
-@app.get("/me")
-@app.get("/auth/me")
-async def me_direct(user: dict = Depends(get_current_user)):
-    return {"user": user_to_public(user)}
-
-@app.post("/login")
-@app.post("/auth/login")
-async def login_direct(body: LoginIn, request: Request, response: Response):
-    return await _do_login(body, request, response)
-
-@app.post("/register")
-@app.post("/auth/register")
-async def register_direct(body: RegisterIn, response: Response):
-    return await _do_register(body, response)
-
-@app.post("/logout")
-@app.post("/auth/logout")
-async def logout_direct(response: Response):
-    clear_auth_cookies(response)
-    return {"ok": True}
-
-# --- OUTRAS ROTAS ---
 
 @api.get("/pricing/table")
 async def pricing_table():
@@ -442,5 +400,36 @@ async def list_deliveries(status: Optional[str] = None, user: dict = Depends(get
     docs = await db.deliveries.find(q).sort("created_at", -1).to_list(500)
     return [delivery_to_public(d) for d in docs]
 
-# Inclusão final do router da API na aplicação FastAPI
+# --- ROTAS DIRETAS NA RAIZ (Garante que se o front chamar sem /api funcione) ---
+
+@app.get("/me")
+@app.get("/auth/me")
+@app.get("/api/me")
+@app.get("/api/auth/me")
+async def me_direct(user: dict = Depends(get_current_user)):
+    return {"user": user_to_public(user)}
+
+@app.post("/login")
+@app.post("/auth/login")
+@app.post("/api/login")
+@app.post("/api/auth/login")
+async def login_direct(body: LoginIn, request: Request, response: Response):
+    return await _do_login(body, request, response)
+
+@app.post("/register")
+@app.post("/auth/register")
+@app.post("/api/register")
+@app.post("/api/auth/register")
+async def register_direct(body: RegisterIn, response: Response):
+    return await _do_register(body, response)
+
+@app.post("/logout")
+@app.post("/auth/logout")
+@app.post("/api/logout")
+@app.post("/api/auth/logout")
+async def logout_direct(response: Response):
+    clear_auth_cookies(response)
+    return {"ok": True}
+
+# --- INCLUSÃO DO ROUTER PRINCIPAL ---
 app.include_router(api)
