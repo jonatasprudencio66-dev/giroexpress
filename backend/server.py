@@ -175,7 +175,7 @@ app = FastAPI(title="GiroExpress API")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Liberado temporariamente para garantir que a conexão passe sem bloqueio de CORS
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
