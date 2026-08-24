@@ -1,6 +1,6 @@
 import axios from "axios";
 
-export const BASE = "https://giroexpress-production.up.railway.app";
+export const BASE = process.env.REACT_APP_BACKEND_URL || "https://giroexpress-production-4f8a.up.railway.app";
 export const API_BASE = BASE;
 
 export const api = axios.create({
