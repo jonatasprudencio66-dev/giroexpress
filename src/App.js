@@ -13,8 +13,10 @@ import { Loader2 } from "lucide-react";
 
 function LoadingScreen() {
   return (
-    <div className="min-h-screen flex items-center justify-center bg-slate-950 text-slate-100">
-      <Loader2 className="w-8 h-8 animate-spin text-orange-500" />
+    <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", backgroundColor: "#020617", color: "#f8fafc" }}>
+      <div style={{ textAlign: "center" }}>
+        <div style={{ fontSize: "16px", fontWeight: "600", marginBottom: "8px" }}>Carregando GiroExpress...</div>
+      </div>
     </div>
   );
 }
