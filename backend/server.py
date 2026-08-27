@@ -469,3 +469,9 @@ async def system_status_direct():
         "active": settings.get("active", True),
         "maintenance": settings.get("maintenance", False)
     }
+
+@app.post("/couriers/me/online")
+@app.post("/api/couriers/me/online")
+async def courier_online_direct(user: dict = Depends(require_roles("courier"))):
+    await db.users.update_one({"_id": user["_id"]}, {"$set": {"online": True}})
+    return {"ok": True}
