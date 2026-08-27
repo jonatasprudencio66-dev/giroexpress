@@ -175,7 +175,11 @@ app = FastAPI(title="GiroExpress API")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[
+        "https://giroexpress-9ufp.vercel.app",
+        "https://giroexpress-9ufp-git-main-exspress.vercel.app",
+        "http://localhost:3000"
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
