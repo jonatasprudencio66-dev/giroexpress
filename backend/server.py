@@ -420,13 +420,6 @@ async def admin_stats_direct(user: dict = Depends(require_roles("admin"))):
         total_fees += d.get("platform_fee", 1.0)
     return {"stats": {"total_fees": total_fees}}
 
-@app.get("/admin/stats")
-@app.get("/api/admin/stats")
-async def admin_stats_direct(user: dict = Depends(require_roles("admin"))):
-    total_fees = 0
-    async for d in db.deliveries.find({"status": "completed"}):
-        total_fees += d.get("platform_fee", 1.0)
-    return {"stats": {"total_fees": total_fees}}
 
 @app.get("/admin/settings/operations")
 @app.get("/api/admin/settings/operations")
@@ -438,4 +431,20 @@ async def admin_operations_direct(user: dict = Depends(require_roles("admin"))):
         "open_time": settings.get("open_time", "00:00"),
         "close_time": settings.get("close_time", "23:59"),
         "holidays": settings.get("holidays", [])
+    }
+
+@app.get("/statements")
+@app.get("/api/statements")
+async def statements_store_direct(user: dict = Depends(get_current_user)):
+    q = {"store_id": str(user["_id"])} if user["role"] == "store" else {}
+    docs = await db.statements.find(q).to_list(500)
+    return docs
+
+@app.get("/system/status")
+@app.get("/api/system/status")
+async def system_status_direct():
+    settings = await db.settings.find_one({"_id": "global"}) or {}
+    return {
+        "active": settings.get("active", True),
+        "maintenance": settings.get("maintenance", False)
     }
