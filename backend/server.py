@@ -417,3 +417,23 @@ async def admin_users_direct(user: dict = Depends(require_roles("admin"))):
 async def admin_stats_direct(user: dict = Depends(require_roles("admin"))):
     # Insira aqui a mesma lógica da sua rota stats original
     return {"stats": {}}
+
+@app.get("/admin/stats")
+@app.get("/api/admin/stats")
+async def admin_stats_direct(user: dict = Depends(require_roles("admin"))):
+    total_fees = 0
+    async for d in db.deliveries.find({"status": "completed"}):
+        total_fees += d.get("platform_fee", 1.0)
+    return {"stats": {"total_fees": total_fees}}
+
+@app.get("/admin/settings/operations")
+@app.get("/api/admin/settings/operations")
+async def admin_operations_direct(user: dict = Depends(require_roles("admin"))):
+    settings = await db.settings.find_one({"_id": "global"}) or {}
+    return {
+        "active": settings.get("active", True),
+        "disabled_days": settings.get("disabled_days", []),
+        "open_time": settings.get("open_time", "00:00"),
+        "close_time": settings.get("close_time", "23:59"),
+        "holidays": settings.get("holidays", [])
+    }
