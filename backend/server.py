@@ -475,3 +475,15 @@ async def system_status_direct():
 async def courier_online_direct(user: dict = Depends(require_roles("courier"))):
     await db.users.update_one({"_id": user["_id"]}, {"$set": {"online": True}})
     return {"ok": True}
+
+@app.post("/deliveries/{delivery_id}/start")
+@app.post("/api/deliveries/{delivery_id}/start")
+async def start_delivery_direct(delivery_id: str, user: dict = Depends(require_roles("courier"))):
+    await db.deliveries.update_one({"_id": ObjectId(delivery_id)}, {"$set": {"status": "in_progress"}})
+    return {"ok": True}
+
+@app.post("/deliveries/{delivery_id}/complete")
+@app.post("/api/deliveries/{delivery_id}/complete")
+async def complete_delivery_direct(delivery_id: str, user: dict = Depends(require_roles("courier"))):
+    await db.deliveries.update_one({"_id": ObjectId(delivery_id)}, {"$set": {"status": "completed"}})
+    return {"ok": True}
