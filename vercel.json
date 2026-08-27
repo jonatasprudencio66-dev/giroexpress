@@ -1,4 +1,10 @@
 {
   "buildCommand": "npx craco build",
-  "outputDirectory": "build"
+  "outputDirectory": "build",
+  "rewrites": [
+    {
+      "source": "/api/:match*",
+      "destination": "https://giroexpress-production-4f8a.up.railway.app/api/:match*"
+    }
+  ]
 }
