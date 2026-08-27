@@ -1,7 +1,6 @@
 import axios from "axios";
 
-export const BASE = process.env.REACT_APP_BACKEND_URL || "https://giroexpress-production-4f8a.up.railway.app";
-export const API_BASE = BASE;
+export const BASE = process.env.REACT_APP_BACKEND_URL || "";
 
 export const api = axios.create({
   baseURL: `${BASE}/api`,
