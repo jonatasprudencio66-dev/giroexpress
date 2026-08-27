@@ -3,7 +3,7 @@ import axios from "axios";
 export const API_BASE = "";
 
 export const api = axios.create({
-  baseURL: "/api",
+baseURL: "https://giroexpress-production-4f8a.up.railway.app",
   withCredentials: true,
   headers: { "Content-Type": "application/json" },
 });
