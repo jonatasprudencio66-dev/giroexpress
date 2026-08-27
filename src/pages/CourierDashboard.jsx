@@ -139,7 +139,7 @@ export default function CourierDashboard() {
             {(d) => (
               <DeliveryCard key={d.id} d={d} me={user} online={online}
                 onStart={d.status === "accepted" ? () => act(d.id, "start") : null}
-                onComplete={["accepted", "in_transit"].includes(d.status) ? () => act(d.id, "complete") : null}
+                onComplete={["accepted", "in_transit", "picked_up", "in_progress"].includes(d.status) ? () => act(d.id, "complete") : null}
                 onChat={() => setChatDelivery(d)}
                 onTicket={() => { setTicketForId(d.id); setShowTicket(true); }}
               />
