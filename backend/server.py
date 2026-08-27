@@ -186,6 +186,7 @@ app.add_middleware(
 )
 
 api = APIRouter(prefix="/api")
+app.include_router(api)  # <--- Adicione esta linha para registrar o prefixo
 
 class RegisterIn(BaseModel):
     name: str
