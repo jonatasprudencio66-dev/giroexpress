@@ -87,14 +87,15 @@ export default function CourierDashboard() {
 
   const netToday = useMemo(() => {
     const today = new Date().toISOString().slice(0, 10);
-    return deliveries.filter(d => d.status === "delivered" && d.courier_id === user.id && (d.delivered_at || "").startsWith(today)).reduce((s, d) => s + (d.net_courier || 0), 0);
+    return deliveries
+      .filter(d => ["delivered", "completed"].includes(d.status) && String(d.courier_id) === String(user?.id) && (d.delivered_at || d.updated_at || "").startsWith(today))
+      .reduce((s, d) => s + (d.net_courier || d.gross_price || 0), 0);
   }, [deliveries, user]);
 
   const available = deliveries.filter(d => d.status === "pending");
-  const mine = deliveries.filter(d => d.courier_id === user.id && d.status !== "delivered" && d.status !== "cancelled");
-  const history = deliveries.filter(d => d.courier_id === user.id && (d.status === "delivered" || d.status === "cancelled"));
+  const mine = deliveries.filter(d => String(d.courier_id) === String(user?.id) && !["delivered", "completed", "cancelled"].includes(d.status));
+  const history = deliveries.filter(d => String(d.courier_id) === String(user?.id) && ["delivered", "completed", "cancelled"].includes(d.status));
 
-  return (
     <Layout subtitle="Painel do Motoboy" right={
       <div className="flex items-center space-x-2">
         <button data-testid="toggle-notify-btn" onClick={() => setNotifyOn(v => !v)} title={notifyOn ? "Silenciar" : "Ativar som"} className={`p-2 rounded-xl border ${notifyOn ? "bg-orange-500/10 text-orange-400 border-orange-500/30" : "bg-slate-900 text-slate-500 border-slate-800"}`}>
@@ -157,10 +158,10 @@ export default function CourierDashboard() {
         </>
       )}
 
-      {chatDelivery && <ChatModal delivery={chatDelivery} onClose={() => setChatDelivery(null)} />}
+   {chatDelivery && <ChatModal delivery={chatDelivery} onClose={() => setChatDelivery(null)} />}
       <TicketModal open={showTicket} onClose={() => setShowTicket(false)} deliveryId={ticketForId} onCreated={load} />
     </Layout>
-  );
+
 }
 
 function StatCard({ icon, label, value, sub, testid }) {
