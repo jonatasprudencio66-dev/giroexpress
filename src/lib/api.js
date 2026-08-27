@@ -3,11 +3,10 @@ import axios from "axios";
 export const API_BASE = "";
 
 export const api = axios.create({
-baseURL: "https://giroexpress-production-4f8a.up.railway.app",
+  baseURL: "https://giroexpress-production-4f8a.up.railway.app/api",
   withCredentials: true,
   headers: { "Content-Type": "application/json" },
 });
-
 api.interceptors.request.use((config) => {
   const t = localStorage.getItem("giro_token");
   if (t) config.headers.Authorization = `Bearer ${t}`;
