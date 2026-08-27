@@ -4,7 +4,7 @@ export const BASE = process.env.REACT_APP_BACKEND_URL || "";
 export const API_BASE = BASE;
 
 export const api = axios.create({
-  baseURL: `${BASE}/api`,
+baseURL: BASE ? `${BASE}/api` : "/api",
   withCredentials: true,
   headers: { "Content-Type": "application/json" },
 });
