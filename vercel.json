@@ -2,8 +2,8 @@
 {
   "rewrites": [
     {
-      "source": "/api/:match*",
-      "destination": "https://giroexpress-production-4f8a.up.railway.app/:match*"
+      "source": "/api/(.*)",
+      "destination": "https://giroexpress-production-4f8a.up.railway.app/$1"
     }
   ]
 }
