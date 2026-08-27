@@ -305,6 +305,27 @@ async def quote(body: dict):
     custom_price = body.get("custom_price")
     return calculate_delivery_price(delivery_type, custom_price)
 
+@api.post("/deliveries/{delivery_id}/accept")
+async def accept_delivery_api(delivery_id: str, user: dict = Depends(require_roles("courier"))):
+    res = await db.deliveries.update_one(
+        {"_id": ObjectId(delivery_id), "status": "pending"},
+        {"$set": {"courier_id": str(user["_id"]), "courier_name": user["name"], "status": "accepted"}}
+    )
+    if res.modified_count == 0:
+        raise HTTPException(status_code=400, detail="Entrega não disponível ou já aceita.")
+    return {"ok": True}
+
+@app.post("/deliveries/{delivery_id}/accept")
+@app.post("/api/deliveries/{delivery_id}/accept")
+async def accept_delivery_direct(delivery_id: str, user: dict = Depends(require_roles("courier"))):
+    res = await db.deliveries.update_one(
+        {"_id": ObjectId(delivery_id), "status": "pending"},
+        {"$set": {"courier_id": str(user["_id"]), "courier_name": user["name"], "status": "accepted"}}
+    )
+    if res.modified_count == 0:
+        raise HTTPException(status_code=400, detail="Entrega não disponível ou já aceita.")
+    return {"ok": True}
+
 def delivery_to_public(d: dict) -> dict:
     return {
         "id": str(d["_id"]),
