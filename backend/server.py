@@ -405,3 +405,15 @@ async def register_direct(body: RegisterIn, response: Response):
 async def logout_direct(response: Response):
     clear_auth_cookies(response)
     return {"ok": True}
+
+@app.get("/admin/users")
+@app.get("/api/admin/users")
+async def admin_users_direct(user: dict = Depends(require_roles("admin"))):
+    docs = await db.users.find().to_list(500)
+    return [user_to_public(u) for u in docs]
+
+@app.get("/admin/stats")
+@app.get("/api/admin/stats")
+async def admin_stats_direct(user: dict = Depends(require_roles("admin"))):
+    # Insira aqui a mesma lógica da sua rota stats original
+    return {"stats": {}}
