@@ -23,12 +23,13 @@ from pydantic import BaseModel, EmailStr, Field
 logger = logging.getLogger("giroexpress")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 
-MONGO_URL = os.environ["MONGO_URL"]
-DB_NAME = os.environ["DB_NAME"]
-JWT_SECRET = os.environ["JWT_SECRET"]
+MONGO_URL = os.environ.get("MONGO_URL", "mongodb://localhost:27017")
+DB_NAME = os.environ.get("DB_NAME", "giroexpress")
+JWT_SECRET = os.environ.get("JWT_SECRET", "supersecretkey")
 JWT_ALG = "HS256"
-ADMIN_EMAIL = os.environ["ADMIN_EMAIL"].lower()
-ADMIN_PASSWORD = os.environ["ADMIN_PASSWORD"]
+admin_email_raw = os.environ.get("ADMIN_EMAIL", "admin@giroexpress.com")
+ADMIN_EMAIL = admin_email_raw.lower() if admin_email_raw else "admin@giroexpress.com"
+ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "admin123")
 ADMIN_NAME = os.environ.get("ADMIN_NAME", "Admin")
 APP_NAME = os.environ.get("APP_NAME", "giroexpress")
 PLATFORM_FEE = 1.00
@@ -194,6 +195,7 @@ class RegisterIn(BaseModel):
     name: str
     email: EmailStr
     password: str = Field(min_length=6)
+
     role: str
     phone: Optional[str] = None
     address: Optional[str] = None
