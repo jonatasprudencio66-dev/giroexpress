@@ -415,8 +415,10 @@ async def admin_users_direct(user: dict = Depends(require_roles("admin"))):
 @app.get("/admin/stats")
 @app.get("/api/admin/stats")
 async def admin_stats_direct(user: dict = Depends(require_roles("admin"))):
-    # Insira aqui a mesma lógica da sua rota stats original
-    return {"stats": {}}
+    total_fees = 0
+    async for d in db.deliveries.find({"status": "completed"}):
+        total_fees += d.get("platform_fee", 1.0)
+    return {"stats": {"total_fees": total_fees}}
 
 @app.get("/admin/stats")
 @app.get("/api/admin/stats")
