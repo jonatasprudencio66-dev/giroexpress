@@ -427,6 +427,24 @@ async def logout_direct(response: Response):
     clear_auth_cookies(response)
     return {"ok": True}
 
+@app.get("/admin/settings")
+@app.get("/api/admin/settings")
+async def admin_settings_direct(user: dict = Depends(require_roles("admin"))):
+    settings = await db.settings.find_one({"_id": "global"}) or {}
+    return {
+        "active": settings.get("active", True),
+        "disabled_days": settings.get("disabled_days", []),
+        "open_time": settings.get("open_time", "00:00"),
+        "close_time": settings.get("close_time", "23:59"),
+        "holidays": settings.get("holidays", [])
+    }
+
+@app.get("/tickets")
+@app.get("/api/tickets")
+async def get_tickets_direct(user: dict = Depends(get_current_user)):
+    docs = await db.tickets.find().to_list(500)
+    return docs 
+
 @app.get("/admin/users")
 @app.get("/api/admin/users")
 async def admin_users_direct(user: dict = Depends(require_roles("admin"))):
