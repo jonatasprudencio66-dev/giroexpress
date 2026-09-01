@@ -44,6 +44,10 @@ def get_statements():
 def login(data: dict = None):
     email = data.get("email", "") if data else ""
     
+@app.post("/api/auth/login")
+def login(data: dict = None):
+    email = data.get("email", "") if data else ""
+    
     role = "admin"
     if "loja" in email.lower():
         role = "store"
