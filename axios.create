@@ -2,7 +2,7 @@
 const axios = require('axios');
 
 const api = axios.create({
-  baseURL: "https://lucky-words-lick.loca.lt",
+  baseURL: "https://lucky-words-lick.loca.lt/api",
   headers: {
     "bypass-tunnel-reminder": "true"
   }
