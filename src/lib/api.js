@@ -1,12 +1,13 @@
 import axios from "axios";
 
-export const API_BASE = "";
+export const API_BASE = "https://cute-dancers-throw.loca.lt";
 
 export const api = axios.create({
-const API_URL = "https://cute-dancers-throw.loca.lt";
+  baseURL: API_BASE,
   withCredentials: true,
   headers: { "Content-Type": "application/json" },
 });
+
 api.interceptors.request.use((config) => {
   const t = localStorage.getItem("giro_token");
   if (t) config.headers.Authorization = `Bearer ${t}`;
