@@ -1,3 +1,7 @@
+import axios from 'axios';
+
 const api = axios.create({
   baseURL: "https://cute-dancers-throw.loca.lt",
 });
+
+export default api;
