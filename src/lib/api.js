@@ -1,6 +1,6 @@
 import axios from "axios";
 
-export const API_BASE = "https://lovely-views-hunt.loca.lt/api";
+export const API_BASE = "git add .";
 
 export const api = axios.create({
   baseURL: API_BASE,
