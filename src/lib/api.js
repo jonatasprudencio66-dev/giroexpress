@@ -1,14 +1,10 @@
 import axios from "axios";
 
-baseURL: "https://lovely-views-hunt.loca.lt/api",
-
-
 export const api = axios.create({
-  baseURL: API_BASE,
-  withCredentials: true,
-  headers: { 
+  baseURL: "https://lovely-views-hunt.loca.lt/api",
+  headers: {
     "Content-Type": "application/json",
-    "bypass-tunnel-reminder": "true" 
+    "bypass-tunnel-reminder": "true"
   },
 });
 
