@@ -3,7 +3,7 @@ import axios from "axios";
 export const API_BASE = "";
 
 export const api = axios.create({
-  baseURL: "https://giroexpress-production-4f8a.up.railway.app/api",
+const API_URL = "https://cute-dancers-throw.loca.lt";
   withCredentials: true,
   headers: { "Content-Type": "application/json" },
 });

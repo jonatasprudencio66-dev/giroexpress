@@ -174,22 +174,28 @@ async def clear_attempts(identifier: str):
 
 app = FastAPI(title="GiroExpress API")
 
-app.add_middleware(
-    CORSMiddleware,
-allow_origins=[
-        "https://giroexpress-9ufp.vercel.app",
-        "https://giroexpress-git-main-express.vercel.app",
-        "https://giroexpress-git-main-exspress.vercel.app",
-        "http://localhost:3000",
-        "*"
-    ],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+from fastapi import Response as FastAPIResponse
+from starlette.middleware.base import BaseHTTPMiddleware
+
+class CustomCORSMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request, call_next):
+        if request.method == "OPTIONS":
+            response = FastAPIResponse(status_code=200)
+        else:
+            response = await call_next(request)
+            
+        origin = request.headers.get("origin", "*")
+        response.headers["Access-Control-Allow-Origin"] = origin
+        response.headers["Access-Control-Allow-Credentials"] = "true"
+        response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS, PATCH"
+        response.headers["Access-Control-Allow-Headers"] = "Authorization, Content-Type, Accept, Origin, X-Requested-With"
+        
+        return response
+
+app.add_middleware(CustomCORSMiddleware)
 
 api = APIRouter(prefix="/api")
-app.include_router(api)  # <--- Adicione esta linha para registrar o prefixo
+app.include_router(api)
 
 class RegisterIn(BaseModel):
     name: str
@@ -330,6 +336,50 @@ async def accept_delivery_direct(delivery_id: str, user: dict = Depends(require_
         raise HTTPException(status_code=400, detail="Entrega não disponível ou já aceita.")
     return {"ok": True}
 
+@app.get("/api/deliveries/{delivery_id}/chat")
+async def get_delivery_chat(delivery_id: str, user: dict = Depends(get_current_user)):
+    query = {"id": delivery_id}
+    try:
+        query = {"$or": [{"_id": ObjectId(delivery_id)}, {"id": delivery_id}]}
+    except Exception:
+        pass
+        
+    delivery = await db.deliveries.find_one(query)
+    if not delivery:
+        return []
+    return delivery.get("chat", [])
+
+@app.post("/api/deliveries/{delivery_id}/chat")
+async def send_delivery_chat(delivery_id: str, body: dict, user: dict = Depends(get_current_user)):
+    message_text = body.get("message")
+    if not message_text:
+        return {"error": "Mensagem vazia"}
+    
+    chat_message = {
+        "sender_id": str(user.get("_id", user.get("id"))),
+        "sender_name": user.get("name", "Usuário"),
+        "message": message_text,
+        "created_at": now_iso()
+    }
+    
+    query = {"id": delivery_id}
+    try:
+        query = {"$or": [{"_id": ObjectId(delivery_id)}, {"id": delivery_id}]}
+    except Exception:
+        pass
+
+    result = await db.deliveries.update_one(
+        query,
+        {"$push": {"chat": chat_message}}
+    )
+    
+    if result.modified_count == 0:
+        return {"error": "Entrega não encontrada para salvar mensagem"}
+        
+    return {"status": "ok", "message": chat_message}
+
+
+
 def delivery_to_public(d: dict) -> dict:
     return {
         "id": str(d["_id"]),
@@ -407,7 +457,33 @@ app.include_router(api)
 @app.get("/api/me")
 @app.get("/api/auth/me")
 async def me_direct(user: dict = Depends(get_current_user)):
-    return {"user": user_to_public(user)}
+    user_id = user.get("_id") or user.get("id")
+    try:
+        obj_id = ObjectId(user_id)
+    except:
+        obj_id = user_id
+        
+    latest_user = await db.users.find_one({"$or": [{"_id": obj_id}, {"id": str(user_id)}]})
+    if latest_user:
+        user = latest_user
+        
+    # Converte o objeto do banco para público
+    public_data = user_to_public(user)
+    
+    # Força os sinalizadores de aprovação em todas as variações que o front-end pode ler
+    status_val = str(user.get("status", "")).lower()
+    if status_val in ["active", "approved", "ACTIVE", "APPROVED"]:
+        public_data["status"] = "active"
+        public_data["approved"] = True
+        public_data["is_approved"] = True
+        public_data["active"] = True
+    else:
+        # Se não estiver ativo, garante que o front saiba o motivo
+        public_data["status"] = status_val or "pending"
+        public_data["approved"] = False
+        public_data["is_approved"] = False
+    
+    return {"user": public_data}
 
 @app.post("/login")
 @app.post("/auth/login")
@@ -443,6 +519,59 @@ async def admin_settings_direct(user: dict = Depends(require_roles("admin"))):
         "holidays": settings.get("holidays", [])
     }
 
+@app.post("/admin/users/{user_id}/approve")
+@app.post("/api/admin/users/{user_id}/approve")
+async def approve_user(user_id: str, admin: dict = Depends(require_roles("admin"))):
+    try:
+        obj_id = ObjectId(user_id)
+    except:
+        obj_id = user_id
+
+    result = await db.users.update_one(
+        {"$or": [{"_id": obj_id}, {"id": user_id}]},
+        {"$set": {
+            "status": "active", 
+            "approved": True, 
+            "is_approved": True, 
+            "active": True,
+            "verified": True,
+            "is_verified": True
+        }}
+    )
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Usuário não encontrado")
+        
+  
+    return {"ok": True, "message": "Usuário aprovado com sucesso"}
+
+@app.post("/deliveries/{delivery_id}/accept")
+@app.post("/api/deliveries/{delivery_id}/accept")
+async def accept_delivery(delivery_id: str, user: dict = Depends(get_current_user)):
+    try:
+        obj_id = ObjectId(delivery_id)
+    except:
+        obj_id = delivery_id
+
+    result = await db.deliveries.update_one(
+        {"$or": [{"_id": obj_id}, {"id": delivery_id}], "status": "PENDING"},
+        {
+            "$set": {
+                "status": "ACCEPTED",
+                "courier_id": str(user.get("_id", user.get("id"))),
+                "courier_name": user.get("name", "Entregador")
+            }
+        }
+    )
+
+    if result.modified_count == 0:
+        raise HTTPException(status_code=400, detail="Esta corrida já foi aceita por outro entregador.")
+
+    return {"ok": True, "message": "Corrida aceita com sucesso!"}
+
+@app.get("/tickets")
+@app.get("/api/tickets")
+
+
 @app.get("/tickets")
 @app.get("/api/tickets")
 async def get_tickets_direct(user: dict = Depends(get_current_user)):
@@ -453,19 +582,71 @@ async def get_tickets_direct(user: dict = Depends(get_current_user)):
 @app.get("/api/admin/users")
 async def admin_users_direct(user: dict = Depends(require_roles("admin"))):
     docs = await db.users.find().to_list(500)
-    return [user_to_public(u) for u in docs]
+    cleaned_docs = []
+    for u in docs:
+        try:
+            u["_id"] = str(u["_id"])
+            # Adiciona esta linha para garantir que o campo id exista para o front-end
+            u["id"] = u.get("id") or u["_id"]
+            
+            status_val = u.get("status")
+            u["status"] = str(status_val).lower() if status_val else "pending"
+            cleaned_docs.append(u)
+        except Exception:
+            continue
+    return cleaned_docs
 
 @app.get("/admin/stats")
 @app.get("/api/admin/stats")
 async def admin_stats_direct(user: dict = Depends(require_roles("admin"))):
-    total_fees = 0
-    async for d in db.deliveries.find({"status": "completed"}):
-        total_fees += d.get("platform_fee", 1.0)
-    return {"stats": {"total_fees": total_fees}}
+    total_users = await db.users.count_documents({})
+    total_stores = await db.users.count_documents({"role": "store"})
+    total_couriers = await db.users.count_documents({"role": "courier"})
 
+    deliveries = await db.deliveries.find({"status": {"$in": ["completed", "delivered"]}}).to_list(None)
+    total_delivered = len(deliveries)
+
+    store_fees_map = {}
+    for d in deliveries:
+        store_id = str(d.get("store_id", "Desconhecida"))
+        store_name = d.get("store_name", "Loja")
+        raw_date = d.get("created_at")
+        
+        if isinstance(raw_date, datetime):
+            br_date = raw_date.astimezone(timezone(timedelta(hours=-3)))
+            date_str = br_date.strftime("%Y-%m-%d")
+        else:
+            date_str = str(raw_date)[:10]
+            
+        fee = float(d.get("platform_fee", 1.0))
+
+        key = f"{store_id}_{date_str}"
+        if key not in store_fees_map:
+            store_fees_map[key] = {
+                "store_name": store_name,
+                "date": date_str,
+                "deliveries_count": 0,
+                "total_fee": 0.0
+            }
+        store_fees_map[key]["deliveries_count"] += 1
+        store_fees_map[key]["total_fee"] += fee
+
+    collected_fees = sum(item["total_fee"] for item in store_fees_map.values())
+
+    return {
+        "platform_fees_collected": collected_fees,
+        "total_users": total_users,
+        "total_stores": total_stores,
+        "total_couriers": total_couriers,
+        "total_deliveries": await db.deliveries.count_documents({}),
+        "delivered": total_delivered,
+        "open_tickets": await db.tickets.count_documents({"status": "open"}),
+        "store_fees_details": list(store_fees_map.values())
+    }
 
 @app.get("/admin/settings/operations")
 @app.get("/api/admin/settings/operations")
+
 async def admin_operations_direct(user: dict = Depends(require_roles("admin"))):
     settings = await db.settings.find_one({"_id": "global"}) or {}
     return {
@@ -475,6 +656,33 @@ async def admin_operations_direct(user: dict = Depends(require_roles("admin"))):
         "close_time": settings.get("close_time", "23:59"),
         "holidays": settings.get("holidays", [])
     }
+
+@app.patch("/admin/users/{user_id}")
+@app.patch("/api/admin/users/{user_id}")
+async def update_user_status_direct(user_id: str, request: Request, admin: dict = Depends(require_roles("admin"))):
+    try:
+        body = await request.json()
+    except:
+        body = {}
+        
+    try:
+        obj_id = ObjectId(user_id)
+    except:
+        obj_id = user_id
+
+    new_status = body.get("status", "BLOCKED")
+    if isinstance(new_status, str):
+        new_status = new_status.upper()
+
+    result = await db.users.update_one(
+        {"$or": [{"_id": obj_id}, {"id": user_id}]},
+        {"$set": {"status": new_status}}
+    )
+    
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Usuário não encontrado")
+    
+    return {"ok": True, "message": "Status atualizado com sucesso"}
 
 @app.get("/statements")
 @app.get("/api/statements")
@@ -509,3 +717,61 @@ async def start_delivery_direct(delivery_id: str, user: dict = Depends(require_r
 async def complete_delivery_direct(delivery_id: str, user: dict = Depends(require_roles("courier"))):
     await db.deliveries.update_one({"_id": ObjectId(delivery_id)}, {"$set": {"status": "completed"}})
     return {"ok": True}
+
+from fastapi import WebSocket, WebSocketDisconnect
+
+class ConnectionManager:
+    def __init__(self):
+        self.active_connections: dict[str, WebSocket] = {}
+
+    async def connect(self, user_id: str, websocket: WebSocket):
+        await websocket.accept()
+        self.active_connections[user_id] = websocket
+
+    def disconnect(self, user_id: str):
+        if user_id in self.active_connections:
+            del self.active_connections[user_id]
+
+    async def send_personal_message(self, message: dict, user_id: str):
+        if user_id in self.active_connections:
+            await self.active_connections[user_id].send_json(message)
+
+manager = ConnectionManager()
+
+@app.websocket("/ws/{user_id}")
+async def websocket_endpoint(websocket: WebSocket, user_id: str):
+    await manager.connect(user_id, websocket)
+    try:
+        while True:
+            await websocket.receive_text()
+    except WebSocketDisconnect:
+        manager.disconnect(user_id)
+
+@app.post("/api/messages")
+@app.post("/admin/messages")
+async def send_message(data: dict, user: dict = Depends(get_current_user)):
+    sender_id = str(user.get("id") or user.get("_id"))
+    recipient_id = data.get("recipient_id")
+    delivery_id = data.get("delivery_id")
+    text = data.get("text")
+    
+    message_doc = {
+        "delivery_id": delivery_id,
+        "sender_id": sender_id,
+        "recipient_id": recipient_id,
+        "text": text,
+        "created_at": datetime.now(timezone.utc)
+    }
+    
+    await db.messages.insert_one(message_doc)
+    
+    # Envia a notificação em tempo real via WebSocket para o destinatário, se ele estiver online
+    await manager.send_personal_message({
+        "sender_id": sender_id,
+        "sender_name": user.get("name", "Usuário"),
+        "delivery_id": delivery_id,
+        "text": text,
+        "created_at": message_doc["created_at"].isoformat()
+    }, recipient_id)
+    
+    return {"ok": True, "message": "Mensagem enviada com sucesso"}

@@ -1,327 +1,450 @@
-import React, { useEffect, useState } from "react";
-import Layout from "@/components/Layout";
-import ChatModal from "@/components/ChatModal";
-import TicketModal from "@/components/TicketModal";
-import { useAuth } from "@/context/AuthContext";
-import { api, apiError, API_BASE } from "@/lib/api";
-import { formatBRL } from "@/lib/pricing";
-import { toast } from "sonner";
-import { Plus, MapPin, MessageSquare, Headphones, Upload, FileText, Loader2, X, CheckSquare, Package, DollarSign, ExternalLink, AlertTriangle } from "lucide-react";
+import React, { useState, useEffect } from "react";
+import Layout from "../components/Layout";
+import ChatModal from "../components/ChatModal";
+import { Plus, Trash2, MessageSquare } from "lucide-react";
+import { api, apiError } from "../lib/api";
+import { toast } from "react-hot-toast";
 
 export default function StoreDashboard() {
-  const { user, refresh } = useAuth();
+  const [activeTab, setActiveTab] = useState("deliveries");
   const [deliveries, setDeliveries] = useState([]);
-  const [statements, setStatements] = useState([]);
+  const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [systemStatus, setSystemStatus] = useState({ open: true, reason: null });
 
-  const [showNew, setShowNew] = useState(false);
-  const [showTicket, setShowTicket] = useState(false);
-  const [ticketForId, setTicketForId] = useState(null);
-  const [chatDelivery, setChatDelivery] = useState(null);
+  const [deliveryModal, setDeliveryModal] = useState(false);
+  const [productModal, setProductModal] = useState(false);
+  const [activeChatDelivery, setActiveChatDelivery] = useState(null);
 
-  const [allowBatch, setAllowBatch] = useState(user?.allow_batch ?? true);
+  const [deliveryForm, setDeliveryForm] = useState({
+    pickup_address: "Loja",
+    dropoff_address: "",
+    client_name: "",
+    client_phone: "",
+    distance_km: 2,
+    price: "8.00",
+    notes: ""
+  });
 
-  const load = async () => {
+  const [productForm, setProductForm] = useState({
+    name: "",
+    description: "",
+    price: "",
+    category: "Geral"
+  });
+
+useEffect(() => {
+    if (!currentUser || (!currentUser.id && !currentUser._id)) return;
+    const userId = currentUser.id || currentUser._id;
+    
+    const wsProtocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+    const wsHost = "ensnare-enunciate-mushy.ngrok-free.dev";
+    const ws = new WebSocket(`${wsProtocol}//${wsHost}/ws/${userId}`);
+
+    ws.onmessage = (event) => {
+      const data = JSON.parse(event.data);
+      // Notifica visualmente que chegou mensagem nova
+     toast.success(`💬 Nova mensagem de ${data.sender_name}: ${data.text}`, {
+  duration: 5000,
+  position: "top-right"
+});
+    };
+
+    return () => {
+      ws.close();
+    };
+  }, [currentUser]);
+
+  const loadData = async () => {
     try {
-      const [d, s, sys] = await Promise.all([api.get("/deliveries"), api.get("/statements"), api.get("/system/status")]);
-      setDeliveries(d.data);
-      setStatements(s.data);
-      setSystemStatus({ open: sys.data.open, reason: sys.data.reason });
-    } catch (e) { toast.error(apiError(e)); }
-    finally { setLoading(false); }
+      setLoading(true);
+      const [delRes, prodRes] = await Promise.all([
+        api.get("/deliveries").catch(() => ({ data: [] })),
+        api.get("/products").catch(() => ({ data: [] }))
+      ]);
+      const delData = delRes.data;
+      setDeliveries(Array.isArray(delData) ? delData : (delData.deliveries || []));
+      setProducts(Array.isArray(prodRes.data) ? prodRes.data : []);
+    } catch (e) {
+      toast.error(apiError(e));
+    } finally {
+      setLoading(false);
+    }
   };
 
-  useEffect(() => { load(); const t = setInterval(load, 6000); return () => clearInterval(t); }, []);
+  useEffect(() => {
+    loadData();
+    const interval = setInterval(loadData, 5000);
+    return () => clearInterval(interval);
+  }, []);
 
-  const toggleBatch = async (v) => {
-    setAllowBatch(v);
-    try { await api.post("/stores/me/allow-batch", { allow_batch: v }); await refresh(); toast.success(v ? "Lote autorizado (até 3 entregas)." : "Lote desativado."); }
-    catch (e) { setAllowBatch(!v); toast.error(apiError(e)); }
+  const handleCreateDelivery = async (e) => {
+    e.preventDefault();
+    try {
+      await api.post("/deliveries", { ...deliveryForm, price: Number(deliveryForm.price) });
+      toast.success("Corrida solicitada com sucesso!");
+      setDeliveryModal(false);
+      setDeliveryForm({ dropoff_address: "", client_name: "", client_phone: "", distance_km: 2, price: "8.00", notes: "" });
+      loadData();
+    } catch (err) {
+      toast.error(apiError(err));
+    }
   };
 
-  const activeWeek = statements[0];
-  const weekBalance = activeWeek?.total_gross || 0;
+  const handleCreateProduct = async (e) => {
+    e.preventDefault();
+    try {
+      await api.post("/products", { ...productForm, price: Number(productForm.price) });
+      toast.success("Produto cadastrado no cardápio!");
+      setProductModal(false);
+      setProductForm({ name: "", description: "", price: "", category: "Geral" });
+      loadData();
+    } catch (err) {
+      toast.error(apiError(err));
+    }
+  };
+
+  const handleDeleteProduct = async (id) => {
+    if (!confirm("Deseja remover este produto?")) return;
+    try {
+      await api.delete(`/products/${id}`);
+      toast.success("Produto removido.");
+      loadData();
+    } catch (err) {
+      toast.error(apiError(err));
+    }
+  };
 
   return (
-    <Layout subtitle="Painel da Loja">
-      {!systemStatus.open && (
-        <div data-testid="system-closed-banner" className="bg-rose-500/10 border border-rose-500/40 text-rose-300 p-4 rounded-2xl flex items-start space-x-3">
-          <AlertTriangle className="w-5 h-5 text-rose-400 shrink-0 mt-0.5" />
-          <div>
-            <p className="font-bold text-rose-300">Sistema fechado no momento</p>
-            <p className="text-sm">{systemStatus.reason || "Novas entregas estão temporariamente desativadas pelo administrador."}</p>
+    <Layout 
+      subtitle="Painel da Loja"
+      right={
+        <div className="flex space-x-3">
+          {activeTab === 'deliveries' ? (
+            <button
+              onClick={() => setDeliveryModal(true)}
+              className="flex items-center space-x-2 bg-orange-600 hover:bg-orange-500 text-white px-4 py-2 rounded-xl font-medium transition"
+            >
+              <Plus className="w-5 h-5" />
+              <span>Nova Entrega</span>
+            </button>
+          ) : (
+            <button
+              onClick={() => setProductModal(true)}
+              className="flex items-center space-x-2 bg-orange-600 hover:bg-orange-500 text-white px-4 py-2 rounded-xl font-medium transition"
+            >
+              <Plus className="w-5 h-5" />
+              <span>Novo Produto</span>
+            </button>
+          )}
+        </div>
+      }
+    >
+      <div className="space-y-6">
+        <div className="flex border-b border-slate-800 space-x-6">
+          <button
+            onClick={() => setActiveTab("deliveries")}
+            className={`pb-3 font-medium text-sm transition border-b-2 ${
+              activeTab === "deliveries" 
+                ? "border-orange-500 text-orange-400" 
+                : "border-transparent text-slate-400 hover:text-white"
+            }`}
+          >
+            Acompanhar Entregas
+          </button>
+          <button
+            onClick={() => setActiveTab("products")}
+            className={`pb-3 font-medium text-sm transition border-b-2 ${
+              activeTab === "products" 
+                ? "border-orange-500 text-orange-400" 
+                : "border-transparent text-slate-400 hover:text-white"
+            }`}
+          >
+            Gerenciar Cardápio / Produtos
+          </button>
+        </div>
+
+        {activeTab === "deliveries" && (
+          <div className="space-y-6">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="bg-slate-900 border border-slate-800 p-5 rounded-2xl">
+                <span className="text-slate-400 text-sm">Total de Entregas</span>
+                <p className="text-2xl font-bold text-white mt-2">{deliveries.length}</p>
+              </div>
+              <div className="bg-slate-900 border border-slate-800 p-5 rounded-2xl">
+                <span className="text-slate-400 text-sm">Em Andamento</span>
+                <p className="text-2xl font-bold text-white mt-2">
+                  {deliveries.filter(d => ["pending", "accepted", "picked_up"].includes(d.status)).length}
+                </p>
+              </div>
+              <div className="bg-slate-900 border border-slate-800 p-5 rounded-2xl">
+                <span className="text-slate-400 text-sm">Concluídas</span>
+                <p className="text-2xl font-bold text-white mt-2">
+                  {deliveries.filter(d => ["delivered", "completed", "COMPLETED", "DELIVERED"].includes(d.status)).length}
+                </p>
+              </div>
+            </div>
+
+            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6">
+              <h2 className="text-lg font-bold text-white mb-4">Lista de Pedidos e Corridas</h2>
+              {deliveries.length === 0 ? (
+                <p className="text-slate-500 text-center py-8">Nenhuma entrega registrada ainda.</p>
+              ) : (
+                <div className="space-y-4">
+                  {deliveries.map((d) => (
+                    <div key={d.id || d._id} className="border border-slate-800 bg-slate-950/50 p-4 rounded-xl flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+                      <div>
+                        <div className="flex items-center space-x-2">
+                          <span className="font-semibold text-orange-400 text-sm">{d.code || "PEDIDO"}</span>
+                          <span className="text-xs px-2 py-0.5 rounded-full font-medium bg-amber-500/10 text-amber-400 border border-amber-500/20">
+                            {d.status.toUpperCase()}
+                          </span>
+                        </div>
+                        <p className="text-white font-medium mt-1">Cliente: {d.client_name}</p>
+                        <p className="text-slate-400 text-sm">Destino: {d.dropoff_address}</p>
+                        {d.courier_name && <p className="text-slate-500 text-xs mt-1">Motoboy: {d.courier_name}</p>}
+                      </div>
+                      <div className="flex items-center space-x-4">
+                        <div className="text-right">
+                          <p className="text-emerald-400 font-bold">R$ {Number(d.price || d.gross_price || 0).toFixed(2)}</p>
+                          <span className="text-xs text-slate-500">Taxa adm: R$ 1,00</span>
+                        </div>
+                        <button
+                          onClick={() => setActiveChatDelivery(d)}
+                          className="flex items-center space-x-1.5 bg-slate-800 hover:bg-slate-700 text-orange-400 px-3 py-2 rounded-xl text-xs font-medium transition border border-slate-700"
+                        >
+                          <MessageSquare className="w-4 h-4" />
+                          <span>Chat</span>
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {activeTab === "products" && (
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6">
+            <h2 className="text-lg font-bold text-white mb-4">Itens Cadastrados no Cardápio</h2>
+            {products.length === 0 ? (
+              <p className="text-slate-500 text-center py-8">Nenhum produto cadastrado. Clique em "Novo Produto" acima.</p>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {products.map((p) => (
+                  <div key={p.id} className="border border-slate-800 bg-slate-950 p-4 rounded-xl flex flex-col justify-between">
+                    <div>
+                      <div className="flex justify-between items-start">
+                        <h3 className="text-white font-bold">{p.name}</h3>
+                        <button 
+                          onClick={() => handleDeleteProduct(p.id)}
+                          className="text-slate-500 hover:text-red-400 transition"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                      <p className="text-slate-400 text-xs mt-1 line-clamp-2">{p.description || "Sem descrição"}</p>
+                      <span className="inline-block bg-slate-800 text-slate-300 text-xs px-2 py-0.5 rounded mt-2">
+                        {p.category}
+                      </span>
+                    </div>
+                    <div className="mt-4 pt-3 border-t border-slate-900 flex justify-between items-center">
+                      <span className="text-emerald-400 font-bold">R$ {Number(p.price).toFixed(2)}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      {deliveryModal && (
+        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex justify-center items-center z-50 p-4">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-lg p-6 space-y-4 max-h-[90vh] overflow-y-auto">
+            <h3 className="text-xl font-bold text-white">Solicitar Nova Entrega</h3>
+            <form onSubmit={handleCreateDelivery} className="space-y-4">
+              <div>
+                <label className="block text-sm text-slate-400 mb-2">1. Selecione a Região / Taxa de Entrega</label>
+                <div className="grid grid-cols-1 gap-2">
+                  {[
+                    { label: "Entregas dentro da cidade", price: 8, address: "Cidade - " },
+                    { label: "Condomínio dentro da cidade", price: 10, address: "Condomínio (Cidade) - " },
+                    { label: "Condomínios próximo (Raízes e Botânico)", price: 12, address: "Cond. Raízes / Botânico - " },
+                    { label: "Condomínio Reserva do Bosque", price: 15, address: "Cond. Reserva do Bosque - " },
+                    { label: "Condomínios afastados (Bella Vitta e Garden RNI)", price: 20, address: "Cond. Bella Vitta / Garden RNI - " },
+                  ].map((item, idx) => (
+                    <button
+                      key={idx}
+                      type="button"
+                      onClick={() => {
+                        setDeliveryForm({
+                          ...deliveryForm, 
+                          pickup_address: "Loja",
+                          price: item.price,
+                          dropoff_address: deliveryForm.dropoff_address ? deliveryForm.dropoff_address : item.address,
+                          notes: `${item.label} - R$ ${item.price},00`
+                        });
+                      }}
+                      className={`text-left px-3 py-2.5 rounded-xl text-xs flex justify-between items-center transition border ${
+                        Number(deliveryForm.price) === item.price 
+                          ? "bg-orange-600/20 border-orange-500 text-orange-300 font-medium" 
+                          : "bg-slate-950 border-slate-800 text-slate-300 hover:bg-slate-800"
+                      }`}
+                    >
+                      <span>{item.label}</span>
+                      <span className="font-bold text-emerald-400 text-sm">R$ {item.price},00</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="pt-2 border-t border-slate-800 space-y-4">
+                <div>
+                  <label className="block text-sm text-slate-400 mb-1">Nome do Cliente</label>
+                  <input
+                    type="text"
+                    required
+                    value={deliveryForm.client_name}
+                    onChange={e => setDeliveryForm({...deliveryForm, client_name: e.target.value})}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2 text-white focus:outline-none focus:border-orange-500"
+                    placeholder="Ex: João da Silva"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm text-slate-400 mb-1">Endereço Completo (Rua, Número, Lote...)</label>
+                  <input
+                    type="text"
+                    required
+                    value={deliveryForm.dropoff_address}
+                    onChange={e => setDeliveryForm({...deliveryForm, dropoff_address: e.target.value})}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2 text-white focus:outline-none focus:border-orange-500"
+                    placeholder="Ex: Rua Tiradentes, 281 (ou Lote 12)"
+                  />
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm text-slate-400 mb-1">Telefone</label>
+                    <input
+                      type="text"
+                      value={deliveryForm.client_phone}
+                      onChange={e => setDeliveryForm({...deliveryForm, client_phone: e.target.value})}
+                      className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2 text-white focus:outline-none focus:border-orange-500"
+                      placeholder="(17) 9..."
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm text-slate-400 mb-1">Valor Final (R$)</label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      required
+                      value={deliveryForm.price}
+                      onChange={e => setDeliveryForm({...deliveryForm, price: e.target.value})}
+                      className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2 text-white font-bold text-emerald-400 focus:outline-none focus:border-orange-500"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex justify-end space-x-3 pt-3">
+                <button
+                  type="button"
+                  onClick={() => setDeliveryModal(false)}
+                  className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-white rounded-xl transition"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2 bg-orange-600 hover:bg-orange-500 text-white font-medium rounded-xl transition"
+                >
+                  Chamar Motoboy
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4" data-testid="store-dashboard">
-        <StatCard icon={<DollarSign className="w-5 h-5" />} label="Extrato Acumulado (Semana Atual)" value={formatBRL(weekBalance)} sub="Fechamento domingo · Vencimento terça" testid="store-weekly-balance" />
-        <StatCard icon={<Package className="w-5 h-5" />} label="Entregas Realizadas" value={`${deliveries.filter(d => d.status === "delivered").length}`} sub={`${deliveries.length} totais (incluindo pendentes)`} />
-        <div className="bg-slate-900 border border-slate-800 p-5 rounded-2xl flex flex-col">
-          <div className="flex items-center space-x-2 text-orange-400"><CheckSquare className="w-5 h-5" /><p className="text-xs uppercase font-bold tracking-wide">Lotes Simultâneos</p></div>
-          <p className="text-sm text-slate-300 mt-2 mb-3">Autorizar até 3 entregas para um mesmo motoboy?</p>
-          <label className="flex items-center space-x-2 bg-slate-950 p-2.5 rounded-xl border border-slate-800">
-            <input data-testid="allow-batch-toggle" type="checkbox" checked={allowBatch} onChange={(e) => toggleBatch(e.target.checked)} className="w-4 h-4 accent-orange-500" />
-            <span className="text-xs text-slate-300 font-semibold">{allowBatch ? "Lote habilitado" : "Lote desabilitado"}</span>
-          </label>
-        </div>
-      </div>
 
-      <div className="flex flex-wrap items-center gap-3">
-        <button data-testid="new-delivery-btn" disabled={!systemStatus.open} onClick={() => setShowNew(true)} className={`font-bold px-5 py-3 rounded-xl flex items-center space-x-2 transition shadow-lg ${systemStatus.open ? "bg-orange-500 hover:bg-orange-400 text-slate-950 shadow-orange-500/30" : "bg-slate-800 text-slate-500 cursor-not-allowed"}`}>
-          <Plus className="w-4 h-4" /><span>Solicitar Nova Entrega</span>
-        </button>
-        <button data-testid="open-ticket-btn" onClick={() => { setTicketForId(null); setShowTicket(true); }} className="bg-slate-900 hover:bg-slate-800 border border-slate-700 text-orange-400 px-5 py-3 rounded-xl text-sm font-semibold flex items-center space-x-2">
-          <Headphones className="w-4 h-4" /><span>Abrir Chamado</span>
-        </button>
-      </div>
-
-      <section className="bg-slate-900 border border-slate-800 rounded-2xl p-6">
-        <h3 className="font-bold text-lg text-white mb-4 flex items-center space-x-2"><FileText className="w-5 h-5 text-orange-400" /><span>Fechamento Semanal &amp; Comprovantes</span></h3>
-        <StatementsList statements={statements} onChanged={load} user={user} />
-      </section>
-
-      <section className="bg-slate-900 border border-slate-800 rounded-2xl p-6">
-        <h3 className="font-bold text-lg text-white mb-4 flex items-center space-x-2"><MapPin className="w-5 h-5 text-orange-400" /><span>Minhas Entregas</span></h3>
-        {loading ? <Loader2 className="w-6 h-6 animate-spin text-slate-500" /> : <DeliveriesTable deliveries={deliveries} onChat={setChatDelivery} onTicket={(id) => { setTicketForId(id); setShowTicket(true); }} />}
-      </section>
-
-      {showNew && <NewDeliveryModal user={user} onClose={() => setShowNew(false)} onCreated={load} />}
-      <TicketModal open={showTicket} onClose={() => setShowTicket(false)} deliveryId={ticketForId} onCreated={load} />
-      {chatDelivery && <ChatModal delivery={chatDelivery} onClose={() => setChatDelivery(null)} />}
-    </Layout>
-  );
-}
-
-function StatCard({ icon, label, value, sub, testid }) {
-  return (
-    <div className="bg-slate-900 border border-slate-800 p-5 rounded-2xl">
-      <div className="flex items-center space-x-2 text-orange-400">{icon}<p className="text-xs uppercase font-bold tracking-wide">{label}</p></div>
-      <h3 data-testid={testid} className="text-3xl font-black text-white mt-2">{value}</h3>
-      {sub && <p className="text-xs text-slate-400 mt-2">{sub}</p>}
-    </div>
-  );
-}
-
-function DeliveriesTable({ deliveries, onChat, onTicket }) {
-  const statusStyle = {
-    pending: "bg-slate-800 text-slate-300",
-    accepted: "bg-blue-500/20 text-blue-400",
-    in_transit: "bg-amber-500/20 text-amber-400",
-    delivered: "bg-emerald-500/20 text-emerald-400",
-    cancelled: "bg-rose-500/20 text-rose-400",
-  };
-  const statusLabel = { pending: "PENDENTE", accepted: "ACEITA", in_transit: "EM TRÂNSITO", delivered: "ENTREGUE", cancelled: "CANCELADA" };
-
-  if (!deliveries.length) return <p className="text-sm text-slate-400">Nenhuma entrega ainda. Clique em "Solicitar Nova Entrega".</p>;
-
-  return (
-    <div className="overflow-x-auto">
-      <table className="w-full text-left border-collapse text-sm">
-        <thead>
-          <tr className="border-b border-slate-800 text-xs text-slate-400 font-mono">
-            <th className="py-3 px-2">Código</th>
-            <th className="py-3 px-2">Cliente / Endereço</th>
-            <th className="py-3 px-2">Dist</th>
-            <th className="py-3 px-2">Valor</th>
-            <th className="py-3 px-2">Motoboy</th>
-            <th className="py-3 px-2">Status</th>
-            <th className="py-3 px-2">Ações</th>
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-slate-800/60">
-          {deliveries.map((d) => (
-            <tr key={d.id} data-testid={`delivery-row-${d.id}`} className="hover:bg-slate-800/40 transition">
-              <td className="py-3 px-2 font-mono font-bold text-orange-400">{d.code}</td>
-              <td className="py-3 px-2">
-                <p className="font-semibold text-white">{d.client_name}</p>
-                <p className="text-xs text-slate-400">{d.dropoff_address}</p>
-              </td>
-              <td className="py-3 px-2 font-mono text-slate-300">{d.distance_km} km ({d.estimated_min}min)</td>
-              <td className="py-3 px-2 font-bold text-white">{formatBRL(d.gross_price)}</td>
-              <td className="py-3 px-2 text-slate-300">{d.courier_name || <span className="text-slate-500 italic">Aguardando</span>}</td>
-              <td className="py-3 px-2"><span className={`px-2 py-1 rounded-full text-[10px] font-bold ${statusStyle[d.status]}`}>{statusLabel[d.status]}</span></td>
-              <td className="py-3 px-2">
-                <div className="flex items-center space-x-1.5">
-                  <button data-testid={`chat-btn-${d.id}`} onClick={() => onChat(d)} className="bg-slate-800 hover:bg-slate-700 text-orange-400 p-2 rounded-lg" title="Chat"><MessageSquare className="w-3.5 h-3.5" /></button>
-                  <button data-testid={`ticket-btn-${d.id}`} onClick={() => onTicket(d.id)} className="bg-slate-800 hover:bg-slate-700 text-orange-400 p-2 rounded-lg" title="Chamado"><Headphones className="w-3.5 h-3.5" /></button>
+      {productModal && (
+        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex justify-center items-center z-50 p-4">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-lg p-6 space-y-4">
+            <h3 className="text-xl font-bold text-white">Cadastrar Novo Produto</h3>
+            <form onSubmit={handleCreateProduct} className="space-y-4">
+              <div>
+                <label className="block text-sm text-slate-400 mb-1">Nome do Produto</label>
+                <input
+                  type="text"
+                  required
+                  value={productForm.name}
+                  onChange={e => setProductForm({...productForm, name: e.target.value})}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2 text-white focus:outline-none focus:border-orange-500"
+                  placeholder="Ex: Porção de Frango com Fritas"
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm text-slate-400 mb-1">Preço (R$)</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    required
+                    value={productForm.price}
+                    onChange={e => setProductForm({...productForm, price: e.target.value})}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2 text-white focus:outline-none focus:border-orange-500"
+                    placeholder="49.90"
+                  />
                 </div>
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  );
-}
-
-function StatementsList({ statements, onChanged, user }) {
-  if (!statements.length) return <p className="text-sm text-slate-400">Ainda não há fechamento gerado. Assim que a primeira entrega for concluída, o extrato semanal é criado automaticamente.</p>;
-  return (
-    <div className="space-y-3">
-      {statements.map((s) => <StatementRow key={s.id} s={s} onChanged={onChanged} user={user} />)}
-    </div>
-  );
-}
-
-function StatementRow({ s, onChanged, user }) {
-  const [uploading, setUploading] = useState(false);
-  const label = { open: "EM ABERTO", under_review: "COMPROVANTE ENVIADO", approved: "APROVADO", rejected: "REJEITADO" }[s.status] || s.status;
-  const badge = { open: "bg-slate-800 text-slate-300", under_review: "bg-amber-500/20 text-amber-400", approved: "bg-emerald-500/20 text-emerald-400", rejected: "bg-rose-500/20 text-rose-400" }[s.status];
-
-  const upload = async (file) => {
-    if (!file) return;
-    setUploading(true);
-    try {
-      const fd = new FormData();
-      fd.append("file", file);
-      const t = localStorage.getItem("giro_token");
-      const res = await fetch(`${API_BASE}/api/statements/${s.id}/proof`, { method: "POST", credentials: "include", body: fd, headers: t ? { Authorization: `Bearer ${t}` } : {} });
-      if (!res.ok) { const j = await res.json().catch(() => ({})); throw new Error(j.detail || "Falha no upload"); }
-      toast.success("Comprovante enviado! Aguarde validação do admin.");
-      onChanged?.();
-    } catch (e) { toast.error(e.message); }
-    finally { setUploading(false); }
-  };
-
-  const isStore = user?.role === "store";
-
-  return (
-    <div className="bg-slate-950 border border-slate-800 p-4 rounded-xl flex flex-wrap items-center justify-between gap-3" data-testid={`statement-${s.id}`}>
-      <div>
-        <p className="text-xs bg-slate-800 px-2 py-0.5 rounded inline-block text-slate-300 font-mono">{s.cycle_label}</p>
-        <p className="text-sm text-white font-semibold mt-1">
-          {!isStore && `Total: ${formatBRL(s.total_gross)} · `}
-          {s.total_deliveries} entregas
-        </p>
-        {s.due_date && <p className="text-xs text-slate-400">Vencimento: {new Date(s.due_date).toLocaleDateString("pt-BR")}</p>}
-      </div>
-      <div className="flex items-center space-x-3">
-        <span className={`text-xs px-3 py-1 rounded-full font-bold ${badge}`}>{label}</span>
-        {s.status !== "approved" && (
-          <label className="cursor-pointer bg-orange-500 hover:bg-orange-400 text-slate-950 font-bold px-4 py-2 rounded-xl text-xs flex items-center space-x-1.5 transition">
-            {uploading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Upload className="w-3.5 h-3.5" />}
-            <span>{s.proof_path ? "Reenviar" : "Enviar Comprovante"}</span>
-            <input data-testid={`upload-proof-${s.id}`} type="file" accept="image/*,application/pdf" className="hidden" onChange={(e) => upload(e.target.files[0])} />
-          </label>
-        )}
-        {s.proof_path && (
-          <a data-testid={`view-proof-${s.id}`} href={`${API_BASE}/api/files?path=${encodeURIComponent(s.proof_path)}`} target="_blank" rel="noreferrer" className="text-orange-400 text-xs flex items-center space-x-1 hover:underline">
-            <ExternalLink className="w-3 h-3" /><span>Ver</span>
-          </a>
-        )}
-      </div>
-    </div>
-  );
-}
-
-function NewDeliveryModal({ user, onClose, onCreated }) {
-  const [pickup, setPickup] = useState(user?.address || "");
-  const [dropoff, setDropoff] = useState("");
-  const [clientName, setClientName] = useState("");
-  const [clientPhone, setClientPhone] = useState("");
-  const [zoneType, setZoneType] = useState("cidade");
-  const [customPrice, setCustomPrice] = useState("");
-  const [busy, setBusy] = useState(false);
-
-  const pricesMap = {
-    cidade: 8.00,
-    condominio_cidade: 10.00,
-    condominio_proximo: 12.00,
-    condominio_bosque: 15.00,
-    condominio_afastado: 20.00,
-    personalizado: customPrice ? Number(customPrice) : 0
-  };
-
-  const grossPrice = pricesMap[zoneType] || 8.00;
-
-  const submit = async (e) => {
-    e.preventDefault();
-    setBusy(true);
-    try {
-      const body = { 
-        pickup_address: pickup, 
-        dropoff_address: dropoff, 
-        client_name: clientName, 
-        client_phone: clientPhone,
-        delivery_type: zoneType,
-        custom_price: zoneType === "personalizado" ? Number(customPrice) : null,
-        gross_price: grossPrice
-      };
-      const { data } = await api.post("/deliveries", body);
-      toast.success(`Corrida ${data.code} criada!`);
-      onCreated();
-      onClose();
-    } catch (ex) { toast.error(apiError(ex)); }
-    finally { setBusy(false); }
-  };
-
-  return (
-    <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4">
-      <div className="bg-slate-900 border border-slate-800 rounded-3xl max-w-lg w-full p-6 space-y-4 shadow-2xl max-h-[90vh] overflow-y-auto" data-testid="new-delivery-modal">
-        <div className="flex items-center justify-between">
-          <h3 className="text-lg font-bold text-white flex items-center space-x-2"><MapPin className="w-5 h-5 text-orange-400" /><span>Nova Entrega</span></h3>
-          <button onClick={onClose}><X className="w-5 h-5 text-slate-400 hover:text-white" /></button>
+                <div>
+                  <label className="block text-sm text-slate-400 mb-1">Categoria</label>
+                  <input
+                    type="text"
+                    value={productForm.category}
+                    onChange={e => setProductForm({...productForm, category: e.target.value})}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2 text-white focus:outline-none focus:border-orange-500"
+                    placeholder="Porções, Bebidas..."
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm text-slate-400 mb-1">Descrição</label>
+                <textarea
+                  value={productForm.description}
+                  onChange={e => setProductForm({...productForm, description: e.target.value})}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2 text-white focus:outline-none focus:border-orange-500"
+                  placeholder="Ingredientes e detalhes..."
+                  rows="2"
+                />
+              </div>
+              <div className="flex justify-end space-x-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setProductModal(false)}
+                  className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-white rounded-xl transition"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2 bg-orange-600 hover:bg-orange-500 text-white font-medium rounded-xl transition"
+                >
+                  Salvar Produto
+                </button>
+              </div>
+            </form>
+          </div>
         </div>
+      )}
 
-        <form onSubmit={submit} className="space-y-4 text-sm">
-          <div>
-            <label className="text-xs text-slate-400 block mb-1 font-semibold">Região / Tipo de Entrega</label>
-            <select 
-              value={zoneType} 
-              onChange={(e) => setZoneType(e.target.value)}
-              className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-white focus:outline-none focus:border-orange-500"
-            >
-              <option value="cidade">Entregas dentro da cidade (R$ 8,00)</option>
-              <option value="condominio_cidade">Entregas condomínio dentro da cidade (R$ 10,00)</option>
-              <option value="condominio_proximo">Entregas condomínios próximo a cidade - Raízes e Botânico (R$ 12,00)</option>
-              <option value="condominio_bosque">Entregas Condomínio Reserva do Bosque (R$ 15,00)</option>
-              <option value="condominio_afastado">Entregas condomínios afastados - Bella Vitta e Garden RNI (R$ 20,00)</option>
-              <option value="personalizado">Personalizado (Outro valor)</option>
-            </select>
-          </div>
-
-          {zoneType === "personalizado" && (
-            <div>
-              <label className="text-xs text-slate-400 block mb-1 font-semibold">Valor Personalizado (R$)</label>
-              <input 
-                type="number" 
-                step="0.01" 
-                placeholder="Ex: 25.00" 
-                value={customPrice} 
-                onChange={(e) => setCustomPrice(e.target.value)} 
-                className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-white focus:outline-none focus:border-orange-500" 
-              />
-            </div>
-          )}
-
-          <div>
-            <label className="text-xs text-slate-400 block mb-1 font-semibold">Endereço de Retirada (Loja)</label>
-            <input data-testid="pickup-address" required value={pickup} onChange={(e) => setPickup(e.target.value)} className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-white focus:outline-none focus:border-orange-500" />
-          </div>
-          <div>
-            <label className="text-xs text-slate-400 block mb-1 font-semibold">Endereço de Entrega (Cliente Final)</label>
-            <input data-testid="dropoff-address" required value={dropoff} onChange={(e) => setDropoff(e.target.value)} placeholder="Ex: Rua Augusta, 1500 - São Paulo" className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-white focus:outline-none focus:border-orange-500" />
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="text-xs text-slate-400 block mb-1 font-semibold">Nome do Cliente</label>
-              <input data-testid="client-name" required value={clientName} onChange={(e) => setClientName(e.target.value)} className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-white focus:outline-none focus:border-orange-500" />
-            </div>
-            <div>
-              <label className="text-xs text-slate-400 block mb-1 font-semibold">Telefone (opcional)</label>
-              <input value={clientPhone} onChange={(e) => setClientPhone(e.target.value)} className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-white focus:outline-none focus:border-orange-500" />
-            </div>
-          </div>
-
-          <div className="flex justify-end space-x-3 pt-2">
-            <button type="button" onClick={onClose} className="px-4 py-2.5 rounded-xl text-xs font-semibold text-slate-400 hover:text-white">Cancelar</button>
-            <button data-testid="submit-new-delivery" type="submit" disabled={busy} className="bg-orange-500 hover:bg-orange-400 disabled:opacity-50 text-slate-950 font-bold px-6 py-2.5 rounded-xl text-xs transition shadow-lg shadow-orange-500/30 flex items-center space-x-2">
-              {busy && <Loader2 className="w-4 h-4 animate-spin" />}<span>Confirmar</span>
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
+      {activeChatDelivery && (
+        <ChatModal 
+          delivery={activeChatDelivery} 
+          onClose={() => setActiveChatDelivery(null)} 
+        />
+      )}
+    </Layout>
   );
 }

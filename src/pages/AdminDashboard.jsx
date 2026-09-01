@@ -64,8 +64,11 @@ export default function AdminDashboard() {
 
       ]);
 
-      setStats(st.data); setUsers(u.data); setStatements(s.data); setTickets(t.data); setSettings(cfg.data);
-
+      setStats(st.data); 
+      setUsers(Array.isArray(u.data) ? u.data : []); 
+      setStatements(Array.isArray(s.data) ? s.data : []); 
+      setTickets(Array.isArray(t.data) ? t.data : []); 
+      setSettings(cfg.data);
       setBank({ ...cfg.data.bank });
 
       setOps({ ...ops, ...opsRes.data });
@@ -77,6 +80,7 @@ export default function AdminDashboard() {
   };
 
   useEffect(() => { load(); const t = setInterval(load, 8000); return () => clearInterval(t); }, []);
+
 
 
 
@@ -146,7 +150,7 @@ export default function AdminDashboard() {
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4" data-testid="admin-dashboard">
 
-        <StatCard icon={<DollarSign className="w-5 h-5" />} label="Taxas Coletadas" value={formatBRL(stats?.platform_fees_collected)} sub="R$ 1,00 por entrega" testid="admin-fees" />
+        <StatCard icon={<DollarSign className="w-5 h-5" />} label="Taxas Coletadas" value={formatBRL((stats?.delivered || 0) * 1)} sub="R$ 1,00 por entrega" testid="admin-fees" />
 
         <StatCard icon={<Users className="w-5 h-5" />} label="Usuários" value={stats?.total_users} sub={`${stats?.total_stores} lojas · ${stats?.total_couriers} motoboys`} />
 
@@ -155,7 +159,40 @@ export default function AdminDashboard() {
         <StatCard icon={<Headphones className="w-5 h-5" />} label="Chamados Abertos" value={stats?.open_tickets} sub="Central de mediação" />
 
       </div>
-
+<section className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-4 my-6">
+  <h3 className="font-bold text-lg text-white flex items-center space-x-2">
+    <DollarSign className="w-5 h-5 text-orange-400" />
+    <span>Taxas por Loja e Data (Para Cobrança)</span>
+  </h3>
+  <div className="overflow-x-auto">
+    <table className="w-full text-left text-sm">
+      <thead>
+        <tr className="border-b border-slate-800 text-xs text-slate-400 font-mono">
+          <th className="py-3 px-2">Loja</th>
+          <th className="py-3 px-2">Data</th>
+          <th className="py-3 px-2">Entregas Concluídas</th>
+          <th className="py-3 px-2">Taxa Total (R$ 1,00/cada)</th>
+        </tr>
+      </thead>
+      <tbody className="divide-y divide-slate-800/60">
+        {(!stats?.store_fees_details || stats.store_fees_details.length === 0) ? (
+          <tr>
+            <td colSpan="4" className="py-4 text-center text-sm text-slate-500">Nenhuma taxa registrada ainda.</td>
+          </tr>
+        ) : (
+          stats.store_fees_details.map((item, idx) => (
+            <tr key={idx} className="hover:bg-slate-800/40">
+              <td className="py-3 px-2 font-semibold text-white">{item.store_name}</td>
+              <td className="py-3 px-2 text-slate-300 font-mono text-xs">{item.date}</td>
+              <td className="py-3 px-2 text-slate-300">{item.deliveries_count} entregas</td>
+              <td className="py-3 px-2 font-bold text-orange-400">{formatBRL(item.total_fee)}</td>
+            </tr>
+          ))
+        )}
+      </tbody>
+    </table>
+  </div>
+</section>
 
 
       <section className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -190,7 +227,7 @@ export default function AdminDashboard() {
 
             {statements.length === 0 && <p className="text-sm text-slate-400">Nenhum fechamento ainda.</p>}
 
-            {statements.map(s => (
+            {(Array.isArray(statements) ? statements : []).map(s => (
 
               <div key={s.id} className="bg-slate-950 border border-slate-800 p-3 rounded-xl flex flex-wrap items-center justify-between gap-3" data-testid={`admin-stmt-${s.id}`}>
 
@@ -270,8 +307,7 @@ export default function AdminDashboard() {
 
               {WEEKDAYS.map(w => {
 
-                const active = (ops.disabled_weekdays || []).includes(w.i);
-
+           const active = Array.isArray(ops?.disabled_weekdays) && ops.disabled_weekdays.includes(w.i);
                 return (
 
                   <button key={w.i} data-testid={`weekday-${w.i}`} onClick={() => toggleWeekday(w.i)} className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition ${active ? "bg-rose-500/20 text-rose-400 border-rose-500/40" : "bg-slate-900 text-slate-400 border-slate-800 hover:border-slate-700"}`}>

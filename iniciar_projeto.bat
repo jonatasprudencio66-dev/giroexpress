@@ -1,4 +1,5 @@
-@echo off  
-title GiroExpress  
-start cmd /k "cd /d C:\Users\cesar\OneDrive\µrea de Trabalho\Projeto entregas\giroexpress\backend && py -m uvicorn server:app --reload --port 8002"  
-start cmd /k "cd /d C:\Users\cesar\OneDrive\µrea de Trabalho\Projeto entregas\giroexpress\frontend && npm start" 
+@echo off
+cd /d "%~dp0"
+call venv\Scripts\activate
+uvicorn src.main:app --reload --port 8000
+pause

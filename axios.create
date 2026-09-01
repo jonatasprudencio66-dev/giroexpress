@@ -1,0 +1,3 @@
+const api = axios.create({
+  baseURL: "https://cute-dancers-throw.loca.lt",
+});

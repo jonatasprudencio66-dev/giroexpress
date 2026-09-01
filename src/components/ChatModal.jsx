@@ -30,7 +30,7 @@ export default function ChatModal({ delivery, onClose }) {
     if (!text.trim()) return;
     setBusy(true);
     try {
-      await api.post(`/deliveries/${delivery.id}/chat`, { text });
+     await api.post(`/deliveries/${delivery.id}/chat`, { message: text });
       setText("");
       await load();
     } finally { setBusy(false); }
@@ -56,7 +56,7 @@ export default function ChatModal({ delivery, onClose }) {
             return (
               <div key={m.id} className={`flex flex-col ${mine ? "items-end" : "items-start"}`}>
                 <span className="text-[10px] text-slate-500 mb-1">{m.sender_name} ({m.sender_role}) • {new Date(m.created_at).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}</span>
-                <div className={`p-3 rounded-2xl text-sm max-w-[80%] ${mine ? "bg-orange-500 text-slate-950 font-medium" : "bg-slate-800 text-slate-100"}`}>{m.text}</div>
+                <div className={`p-3 rounded-2xl text-sm max-w-[80%] ${mine ? "bg-orange-500 text-slate-950 font-medium" : "bg-slate-800 text-slate-100"}`}>{m.message}</div>
               </div>
             );
           })}

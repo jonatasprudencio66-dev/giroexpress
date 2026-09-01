@@ -44,10 +44,34 @@ export default function CourierDashboard() {
   const seenPending = useRef(new Set());
   const firstLoad = useRef(true);
 
+useEffect(() => {
+    if (!user || (!user.id && !user._id)) return;
+    const userId = user.id || user._id;
+    
+    const wsProtocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+    const wsHost = "ensnare-enunciate-mushy.ngrok-free.dev";
+    const ws = new WebSocket(`${wsProtocol}//${wsHost}/ws/${userId}`);
+
+    ws.onmessage = (event) => {
+      const data = JSON.parse(event.data);
+      // Toca um som de bipe opcional e mostra o alerta na tela do entregador
+      if (typeof playBeep === "function") playBeep();
+     toast.success(`💬 Nova mensagem de ${data.sender_name}: ${data.text}`, {
+  duration: 5000,
+  position: "top-right"
+});
+    };
+
+    return () => {
+      ws.close();
+    };
+  }, [user]);
+
+  console.log("CourierDashboard renderizou! Usuário:", user);
+
   const load = async () => {
     try {
       const { data } = await api.get("/deliveries");
-      // Detect new pending deliveries
       const pending = data.filter(d => d.status === "pending" && !d.courier_id);
       if (!firstLoad.current && online && notifyOn) {
         const fresh = pending.filter(d => !seenPending.current.has(d.id));
@@ -64,10 +88,14 @@ export default function CourierDashboard() {
     finally { setLoading(false); }
   };
 
-  useEffect(() => { load(); const t = setInterval(load, 6000); return () => clearInterval(t); }, []);
+  useEffect(() => { load(); const t = setInterval(load, 6000); return () => clearInterval(t); }, [online, notifyOn]);
 
-  const toggleOnline = async () => {
-    if (user?.status !== "active") { toast.error("Aguardando aprovação do admin para ficar online."); return; }
+const toggleOnline = async () => {
+    const userStatus = String(user?.status || "").toLowerCase();
+    if (userStatus !== "active" && !user?.approved && !user?.is_approved) { 
+      toast.error("Aguardando aprovação do admin para ficar online."); 
+      return; 
+    }
     const next = !online;
     try {
       await api.post("/couriers/me/online", { online: next });
@@ -85,17 +113,24 @@ export default function CourierDashboard() {
     } catch (e) { toast.error(apiError(e)); }
   };
 
-  const netToday = useMemo(() => {
+const netToday = useMemo(() => {
     const today = new Date().toISOString().slice(0, 10);
     return deliveries
-      .filter(d => ["delivered", "completed"].includes(d.status) && String(d.courier_id) === String(user?.id) && (d.delivered_at || d.updated_at || "").startsWith(today))
-      .reduce((s, d) => s + (d.net_courier || d.gross_price || 0), 0);
+      .filter(d => {
+        const statusOk = ["delivered", "completed", "COMPLETED", "DELIVERED"].includes(d.status);
+        const mine = String(d.courier_id) === String(user?.id);
+        const dateStr = d.delivered_at || d.updated_at || d.created_at || "";
+        const dateOk = dateStr.startsWith(today) || !dateStr; // Fallback se a data não bater exatamente
+        return statusOk && mine && dateOk;
+      })
+      .reduce((s, d) => s + (Number(d.net_courier) || Number(d.gross_price) - 1 || 7), 0);
   }, [deliveries, user]);
 
   const available = deliveries.filter(d => d.status === "pending");
   const mine = deliveries.filter(d => String(d.courier_id) === String(user?.id) && !["delivered", "completed", "cancelled"].includes(d.status));
   const history = deliveries.filter(d => String(d.courier_id) === String(user?.id) && ["delivered", "completed", "cancelled"].includes(d.status));
 
+  return (
     <Layout subtitle="Painel do Motoboy" right={
       <div className="flex items-center space-x-2">
         <button data-testid="toggle-notify-btn" onClick={() => setNotifyOn(v => !v)} title={notifyOn ? "Silenciar" : "Ativar som"} className={`p-2 rounded-xl border ${notifyOn ? "bg-orange-500/10 text-orange-400 border-orange-500/30" : "bg-slate-900 text-slate-500 border-slate-800"}`}>
@@ -111,21 +146,25 @@ export default function CourierDashboard() {
       </div>
     }>
       {user?.status === "pending" && (
-        <div className="bg-amber-500/10 border border-amber-500/40 text-amber-300 p-4 rounded-2xl">
+        <div className="bg-amber-500/10 border border-amber-500/40 text-amber-300 p-4 rounded-2xl mb-6">
           <p className="font-bold">Conta pendente de aprovação</p>
           <p className="text-sm">Aguarde o administrador aprovar seu cadastro para ficar Online e aceitar corridas.</p>
         </div>
       )}
 
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4" data-testid="courier-dashboard">
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6" data-testid="courier-dashboard">
         <StatCard icon={<DollarSign className="w-5 h-5" />} label="Ganhos Líquidos Hoje" value={formatBRL(netToday)} sub="Taxa admin de R$ 1,00 já descontada" testid="courier-earnings" />
         <StatCard icon={<Package className="w-5 h-5" />} label="Corridas Ativas" value={mine.length} sub="Em aceite/andamento" />
         <StatCard icon={<Bike className="w-5 h-5" />} label="Veículo" value={user?.vehicle || "—"} sub="Cadastrado" />
         <StatCard icon={<MapPin className="w-5 h-5" />} label="Disponíveis na Região" value={available.length} sub="Prontas para aceitar" />
       </div>
 
-      {loading ? <Loader2 className="w-6 h-6 animate-spin text-slate-500" /> : (
-        <>
+      {loading ? (
+        <div className="flex justify-center py-12">
+          <Loader2 className="w-8 h-8 animate-spin text-orange-500" />
+        </div>
+      ) : (
+        <div className="space-y-6">
           <Section title="Corridas Disponíveis" empty="Nenhuma corrida disponível no momento." data={available} badge={flashCount > 0 ? flashCount : null} onSeen={() => setFlashCount(0)}>
             {(d) => (
               <DeliveryCard key={d.id} d={d} me={user} online={online}
@@ -155,13 +194,13 @@ export default function CourierDashboard() {
               />
             )}
           </Section>
-        </>
+        </div>
       )}
 
-   {chatDelivery && <ChatModal delivery={chatDelivery} onClose={() => setChatDelivery(null)} />}
+      {chatDelivery && <ChatModal delivery={chatDelivery} onClose={() => setChatDelivery(null)} />}
       <TicketModal open={showTicket} onClose={() => setShowTicket(false)} deliveryId={ticketForId} onCreated={load} />
     </Layout>
-
+  );
 }
 
 function StatCard({ icon, label, value, sub, testid }) {
@@ -192,9 +231,10 @@ function Section({ title, data, empty, children, badge = null, onSeen }) {
 }
 
 function DeliveryCard({ d, me, online, onAccept, onStart, onComplete, onChat, onTicket }) {
-  const isMine = d.courier_id === me.id;
-  const statusStyle = { pending: "text-slate-300 bg-slate-800", accepted: "text-blue-400 bg-blue-500/20", in_transit: "text-amber-400 bg-amber-500/20", delivered: "text-emerald-400 bg-emerald-500/20", cancelled: "text-rose-400 bg-rose-500/20" }[d.status];
+  const isMine = String(d.courier_id) === String(me?.id);
+  const statusStyle = { pending: "text-slate-300 bg-slate-800", accepted: "text-blue-400 bg-blue-500/20", in_transit: "text-amber-400 bg-amber-500/20", delivered: "text-emerald-400 bg-emerald-500/20", cancelled: "text-rose-400 bg-rose-500/20" }[d.status] || "text-slate-300 bg-slate-800";
   const gmapsRoute = `https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(d.pickup_address)}&destination=${encodeURIComponent(d.dropoff_address)}&travelmode=driving`;
+  
   return (
     <div className={`bg-slate-950 border rounded-2xl p-5 space-y-4 ${isMine ? "border-orange-500/60 shadow-lg shadow-orange-500/10" : "border-slate-800"}`} data-testid={`courier-delivery-${d.id}`}>
       <div className="flex items-center justify-between">
@@ -210,7 +250,7 @@ function DeliveryCard({ d, me, online, onAccept, onStart, onComplete, onChat, on
         <div className="text-right"><p className="text-slate-400">Líquido:</p><p className="font-mono font-bold text-emerald-400 text-base">{formatBRL(d.net_courier)}</p><p className="text-[10px] text-slate-500">Taxa R$ 1,00 deduzida</p></div>
       </div>
 
-      <span className={`inline-block px-3 py-1 rounded-full text-[10px] font-bold ${statusStyle}`}>{d.status.replace("_", " ").toUpperCase()}</span>
+      <span className={`inline-block px-3 py-1 rounded-full text-[10px] font-bold ${statusStyle}`}>{d.status?.replace("_", " ").toUpperCase()}</span>
 
       <div className="flex flex-wrap items-center gap-2 pt-2">
         {onAccept && (
