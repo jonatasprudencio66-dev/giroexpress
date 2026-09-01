@@ -1,6 +1,5 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.routing import APIRouter
 
 app = FastAPI()
 
@@ -13,37 +12,35 @@ app.add_middleware(
     expose_headers=["*"],
 )
 
-api_router = APIRouter(prefix="/api")
-
-@api_router.get("/")
+@app.get("/")
 def read_root():
     return {"message": "GiroExpress API rodando"}
 
-@api_router.get("/admin/stats")
+@app.get("/admin/stats")
 def get_stats():
     return {"total_taxes": 0, "total_deliveries": 0}
 
-@api_router.get("/admin/settings")
+@app.get("/admin/settings")
 def get_settings():
     return {"status": True}
 
-@api_router.get("/admin/settings/operations")
+@app.get("/admin/settings/operations")
 def get_operations():
     return {}
 
-@api_router.get("/admin/users")
+@app.get("/admin/users")
 def get_admin_users():
     return []
 
-@api_router.get("/tickets")
+@app.get("/tickets")
 def get_tickets():
     return []
 
-@api_router.get("/statements")
+@app.get("/statements")
 def get_statements():
     return []
 
-@api_router.post("/auth/login")
+@app.post("/auth/login")
 def login(data: dict = None):
     email = data.get("email", "") if data else ""
     role = "admin"
@@ -62,11 +59,9 @@ def login(data: dict = None):
         }
     }
 
-@api_router.get("/auth/me")
+@app.get("/auth/me")
 def get_me():
     return {
         "email": "jonatasprudencio66@gmail.com",
         "role": "admin"
     }
-
-app.include_router(api_router)

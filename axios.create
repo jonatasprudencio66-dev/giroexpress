@@ -1,10 +1,11 @@
-
-
 /* eslint-disable */
 const axios = require('axios');
 
 const api = axios.create({
-  baseURL: "https://cute-dancers-throw.loca.lt",
+  baseURL: "https://lucky-words-lick.loca.lt",
+  headers: {
+    "bypass-tunnel-reminder": "true"
+  }
 });
 
 module.exports = api;
