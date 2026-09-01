@@ -1,5 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.routing import APIRouter
 
 app = FastAPI()
 
@@ -12,42 +13,39 @@ app.add_middleware(
     expose_headers=["*"],
 )
 
-@app.get("/")
+api_router = APIRouter(prefix="/api")
+
+@api_router.get("/")
 def read_root():
     return {"message": "GiroExpress API rodando"}
 
-@app.get("/api/admin/stats")
+@api_router.get("/admin/stats")
 def get_stats():
     return {"total_taxes": 0, "total_deliveries": 0}
 
-@app.get("/api/admin/settings")
+@api_router.get("/admin/settings")
 def get_settings():
     return {"status": True}
 
-@app.get("/api/admin/settings/operations")
+@api_router.get("/admin/settings/operations")
 def get_operations():
     return {}
 
-@app.get("/api/admin/users")
+@api_router.get("/admin/users")
 def get_admin_users():
     return []
 
-@app.get("/api/tickets")
+@api_router.get("/tickets")
 def get_tickets():
     return []
 
-@app.get("/api/statements")
+@api_router.get("/statements")
 def get_statements():
     return []
 
-@app.post("/auth/login")
+@api_router.post("/auth/login")
 def login(data: dict = None):
     email = data.get("email", "") if data else ""
-    
-@app.post("/api/auth/login")
-def login(data: dict = None):
-    email = data.get("email", "") if data else ""
-    
     role = "admin"
     if "loja" in email.lower():
         role = "store"
@@ -64,9 +62,11 @@ def login(data: dict = None):
         }
     }
 
-@app.get("/api/auth/me")
+@api_router.get("/auth/me")
 def get_me():
     return {
         "email": "jonatasprudencio66@gmail.com",
         "role": "admin"
     }
+
+app.include_router(api_router)
