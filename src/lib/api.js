@@ -5,7 +5,10 @@ export const API_BASE = "https://cute-dancers-throw.loca.lt";
 export const api = axios.create({
   baseURL: API_BASE,
   withCredentials: true,
-  headers: { "Content-Type": "application/json" },
+  headers: { 
+    "Content-Type": "application/json",
+    "bypass-tunnel-reminder": "true" 
+  },
 });
 
 api.interceptors.request.use((config) => {
@@ -22,4 +25,3 @@ export function apiError(err) {
   if (d?.msg) return d.msg;
   return String(d);
 }
-

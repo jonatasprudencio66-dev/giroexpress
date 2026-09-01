@@ -39,7 +39,7 @@ def get_tickets():
 def get_statements():
     return []
 
-@app.post("/api/auth/login")
+@app.post("/auth/login")
 def login(data: dict = None):
     email = data.get("email", "") if data else ""
     
