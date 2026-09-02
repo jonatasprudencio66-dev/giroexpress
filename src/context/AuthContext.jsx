@@ -7,7 +7,7 @@ export function AuthProvider({ children }) {
   const [user, setUser] = useState(undefined); // undefined = loading, null = unauth, obj = auth
   const [error, setError] = useState(null);
 
-const refresh = async () => {
+  const refresh = async () => {
     try {
       const token = localStorage.getItem("giro_token");
       if (!token) {
@@ -22,7 +22,7 @@ const refresh = async () => {
         return parsedUser;
       }
 
-      const { data } = await api.get("/auth/me");
+      const { data } = await api.get("/api/auth/me");
       if (data.user) {
         localStorage.setItem("user", JSON.stringify(data.user));
         setUser(data.user);
@@ -43,7 +43,7 @@ const refresh = async () => {
   const login = async (email, password) => {
     setError(null);
     try {
-      const { data } = await api.post("/auth/login", { email, password });
+      const { data } = await api.post("/api/auth/login", { email, password });
       if (data.access_token) localStorage.setItem("giro_token", data.access_token);
       if (data.user) localStorage.setItem("user", JSON.stringify(data.user));
       setUser(data.user);
@@ -58,7 +58,7 @@ const refresh = async () => {
   const register = async (payload) => {
     setError(null);
     try {
-      const { data } = await api.post("/auth/register", payload);
+      const { data } = await api.post("/api/auth/register", payload);
       if (data.access_token) localStorage.setItem("giro_token", data.access_token);
       if (data.user) {
         localStorage.setItem("user", JSON.stringify(data.user));
@@ -73,7 +73,7 @@ const refresh = async () => {
   };
 
   const logout = async () => {
-    try { await api.post("/auth/logout"); } catch (_) {}
+    try { await api.post("/api/auth/logout"); } catch (_) {}
     localStorage.removeItem("giro_token");
     localStorage.removeItem("user");
     setUser(null);
