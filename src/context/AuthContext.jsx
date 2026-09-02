@@ -22,7 +22,7 @@ export function AuthProvider({ children }) {
         return parsedUser;
       }
 
-      const { data } = await api.get("/api/auth/me");
+      const { data } = await api.get("/auth/me"); // Corrigido de /api/auth/me para /auth/me
       if (data.user) {
         localStorage.setItem("user", JSON.stringify(data.user));
         setUser(data.user);
@@ -43,7 +43,7 @@ export function AuthProvider({ children }) {
   const login = async (email, password) => {
     setError(null);
     try {
-      const { data } = await api.post("/api/auth/login", { email, password });
+      const { data } = await api.post("/auth/login", { email, password }); // Corrigido de /api/auth/login para /auth/login
       if (data.access_token) localStorage.setItem("giro_token", data.access_token);
       if (data.user) localStorage.setItem("user", JSON.stringify(data.user));
       setUser(data.user);
@@ -73,7 +73,7 @@ export function AuthProvider({ children }) {
   };
 
   const logout = async () => {
-    try { await api.post("/api/auth/logout"); } catch (_) {}
+    try { await api.post("/auth/logout"); } catch (_) {} // Corrigido de /api/auth/logout para /auth/logout
     localStorage.removeItem("giro_token");
     localStorage.removeItem("user");
     setUser(null);
