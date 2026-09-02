@@ -1,5 +1,5 @@
 import axios from "axios";
-export const API_BASE = "https://stupid-queens-study.loca.ltgit add .";
+export const API_BASE = "https://stupid-queens-study.loca.lt/api";
 
 export const api = axios.create({
   baseURL: API_BASE,
