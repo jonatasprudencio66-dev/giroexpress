@@ -58,7 +58,7 @@ export function AuthProvider({ children }) {
   const register = async (payload) => {
     setError(null);
     try {
-      const { data } = await api.post("/api/auth/register", payload);
+     const { data } = await api.post("/auth/register", payload);
       if (data.access_token) localStorage.setItem("giro_token", data.access_token);
       if (data.user) {
         localStorage.setItem("user", JSON.stringify(data.user));
