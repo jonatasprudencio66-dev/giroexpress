@@ -1,6 +1,6 @@
 import axios from "axios";
 
-export const API_BASE = "https://fast-oranges-tease.loca.lt";
+export const API_BASE = " https://strong-lies-help.loca.lt";
 
 export const api = axios.create({
   baseURL: API_BASE,
