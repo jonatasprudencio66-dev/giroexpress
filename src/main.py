@@ -62,6 +62,11 @@ def login(data: dict = None):
         }
     }
 
+@api_router.post("/auth/register")
+def register(data: dict = None):
+    email = data.get("email", "") if data else ""
+    return {"message": "Conta criada com sucesso", "email": email}
+
 @api_router.get("/auth/me")
 def get_me():
     return {
