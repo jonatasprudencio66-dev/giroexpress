@@ -26,7 +26,7 @@ function ProtectedRoute({ role, children }) {
   if (user === undefined) return <LoadingScreen />;
   if (!user) return <Navigate to="/login" replace />;
   if (role && user.role !== role) {
-    const dest = user.role === "admin" ? "/admin" : user.role === "courier" ? "/motoboy" : "/loja";
+    const dest = user.role === "admin" ? "/admin" : user.role === "deliveryman" ? "/motoboy" : "/loja";
     return <Navigate to={dest} replace />;
   }
   return children;
@@ -36,7 +36,7 @@ function RoleRedirect() {
   const { user } = useAuth();
   if (user === undefined) return <LoadingScreen />;
   if (!user) return <Navigate to="/login" replace />;
-  const dest = user.role === "admin" ? "/admin" : user.role === "courier" ? "/motoboy" : "/loja";
+  const dest = user.role === "admin" ? "/admin" : user.role === "deliveryman" ? "/motoboy" : "/loja";
   return <Navigate to={dest} replace />;
 }
 
@@ -49,7 +49,7 @@ function AppRoutes() {
       <Route path="/forgot-password" element={<ForgotPasswordPage />} />
       <Route path="/reset-password" element={<ResetPasswordPage />} />
       <Route path="/loja" element={<ProtectedRoute role="store"><StoreDashboard /></ProtectedRoute>} />
-      <Route path="/motoboy" element={<ProtectedRoute role="courier"><CourierDashboard /></ProtectedRoute>} />
+      <Route path="/motoboy" element={<ProtectedRoute role="deliveryman"><CourierDashboard /></ProtectedRoute>} />
       <Route path="/admin" element={<ProtectedRoute role="admin"><AdminDashboard /></ProtectedRoute>} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>

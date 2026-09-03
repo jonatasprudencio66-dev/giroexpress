@@ -19,17 +19,7 @@ export function AuthProvider({ children }) {
       let userData = data.user || data;
       
       if (userData) {
-        const savedUser = JSON.parse(localStorage.getItem("user") || "{}");
-        const email = userData.email || savedUser.email || "";
-
-        if (email.includes("loja") || email.includes("store")) {
-          userData.role = "store";
-        } else if (email.includes("motoboy") || email.includes("courier") || email.includes("delivery")) {
-          userData.role = "courier";
-        } else {
-          userData.role = "admin";
-        }
-
+        // Respeita exatamente o role que o backend manda no token/sessão
         localStorage.setItem("user", JSON.stringify(userData));
         setUser(userData);
         return userData;
@@ -47,7 +37,7 @@ export function AuthProvider({ children }) {
 
   useEffect(() => { refresh(); }, []);
 
- const login = async (email, password) => {
+  const login = async (email, password) => {
     setError(null);
     try {
       const { data } = await api.post("/auth/login", { email, password });
@@ -55,15 +45,7 @@ export function AuthProvider({ children }) {
       
       let userData = data.user || data;
       
-      // Força o role correto baseado no e-mail digitado se o backend mandar errado
-      if (email.includes("loja") || email.includes("store")) {
-        userData.role = "store";
-      } else if (email.includes("motoboy") || email.includes("courier") || email.includes("delivery")) {
-        userData.role = "courier";
-      } else {
-        userData.role = "admin";
-      }
-
+      // Usa diretamente o role retornado pela API do FastAPI sem regras fixas
       localStorage.setItem("user", JSON.stringify(userData));
       setUser(userData);
       return userData;
