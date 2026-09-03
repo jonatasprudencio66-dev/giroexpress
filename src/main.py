@@ -13,9 +13,6 @@ app.add_middleware(
     expose_headers=["*"],
 )
 
-# IMPORTANTE: Removido o prefix="/api" aqui para evitar duplicidade 
-# caso o vercel.json já faça o rewrite para /api. 
-# Se o seu vercel.json remove o /api, deixe o APIRouter sem prefixo ou ajuste conforme o rewrite.
 api_router = APIRouter(prefix="/api")
 
 @api_router.get("/")
@@ -50,7 +47,6 @@ def get_statements():
 def login(data: dict = None):
     email = data.get("email", "").lower() if data else ""
     
-    # Mapeamento centralizado e automático de e-mails para perfis
     store_emails = ["loja", "store", "comercial"]
     delivery_emails = ["motoboy", "courier", "delivery", "fer.nanda_cs@hotmail.com"]
     
@@ -59,14 +55,17 @@ def login(data: dict = None):
     elif any(keyword in email for keyword in delivery_emails):
         role = "deliveryman"
     else:
-        role = "admin"  # Apenas para administradores reais (ex: seu e-mail principal)
+        role = "admin" 
+
+    # Empacota o role e o e-mail no token para que o refresh resgate ambos sem perder o dado
+    token_falso = f"token_{role}_{email}"
 
     return {
-        "access_token": "token_falso_" + role,
+        "access_token": token_falso,
         "token_type": "bearer",
         "role": role,
         "user": {
-            "email": email or "jonatasprudencio66@gmail.com",
+            "email": email,
             "role": role
         }
     }
@@ -83,14 +82,21 @@ def get_me(authorization: str = Header(None)):
     
     if authorization:
         token_str = authorization.replace("Bearer ", "")
-        if "store" in token_str or "loja" in token_str:
-            role = "store"
-            email = "loja@giroexpress.com"
-        elif "deliveryman" in token_str or "motoboy" in token_str or "courier" in token_str:
-            role = "deliveryman"
-            email = "motoboy@giroexpress.com"
+        parts = token_str.split("_")
+        
+        # Lê dinamicamente o role e o e-mail embutidos no token gerado no login
+        if len(parts) >= 3:
+            role = parts[1]
+            email = parts[2]
         else:
-            role = "admin"
+            if "store" in token_str:
+                role = "store"
+                email = "loja@giroexpress.com"
+            elif "deliveryman" in token_str or "motoboy" in token_str or "courier" in token_str:
+                role = "deliveryman"
+                email = "motoboy@giroexpress.com"
+            else:
+                role = "admin"
 
     return {
         "user": {
@@ -104,4 +110,3 @@ def logout():
     return {"message": "Logout com sucesso"}
 
 app.include_router(api_router)
-
