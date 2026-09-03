@@ -50,13 +50,16 @@ def get_statements():
 def login(data: dict = None):
     email = data.get("email", "").lower() if data else ""
     
-    # Define o cargo dinamicamente baseado no e-mail digitado
-    if "loja" in email:
+    # Mapeamento centralizado e automático de e-mails para perfis
+    store_emails = ["loja", "store", "comercial"]
+    delivery_emails = ["motoboy", "courier", "delivery", "fer.nanda_cs@hotmail.com"]
+    
+    if any(keyword in email for keyword in store_emails):
         role = "store"
-    elif "motoboy" in email:
+    elif any(keyword in email for keyword in delivery_emails):
         role = "deliveryman"
     else:
-        role = "admin"
+        role = "admin"  # Apenas para administradores reais (ex: seu e-mail principal)
 
     return {
         "access_token": "token_falso_" + role,
