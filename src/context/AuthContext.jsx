@@ -14,11 +14,22 @@ export function AuthProvider({ children }) {
         setUser(null);
         return null;
       }
-
+      
       const { data } = await api.get("/auth/me");
-      const userData = data.user || data;
-
+      let userData = data.user || data;
+      
       if (userData) {
+        const savedUser = JSON.parse(localStorage.getItem("user") || "{}");
+        const email = userData.email || savedUser.email || "";
+
+        if (email.includes("loja") || email.includes("store")) {
+          userData.role = "store";
+        } else if (email.includes("motoboy") || email.includes("courier") || email.includes("delivery")) {
+          userData.role = "courier";
+        } else {
+          userData.role = "admin";
+        }
+
         localStorage.setItem("user", JSON.stringify(userData));
         setUser(userData);
         return userData;
