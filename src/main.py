@@ -15,8 +15,10 @@ app.add_middleware(
 
 api_router = APIRouter(prefix="/api")
 
-# Base de dados em memória
-users_db = []
+# Base de dados em memória com um usuário pendente fixo para validação visual no painel
+users_db = [
+    {"email": "jonatas_prudencio@hotmail.com", "role": "deliveryman", "status": "Pendente"}
+]
 
 @api_router.get("/")
 def read_root():
@@ -66,15 +68,12 @@ def login(data: dict = None):
     
     admin_emails = ["jonatasprudencio66@gmail.com"]
     
-    # Se for o admin principal, libera direto
     if email in admin_emails:
         role = "admin"
         status = "Aprovado"
     else:
-        # Busca o usuário cadastrado para checar se já foi aprovado
         user_record = next((u for u in users_db if u["email"] == email), None)
         
-        # Se não estiver na lista, cadastra automaticamente como Pendente para aparecer para o Admin
         if not user_record:
             user_record = {
                 "email": email,
@@ -108,7 +107,6 @@ def register(data: dict = None):
     email = data.get("email", "").lower() if data else ""
     role = data.get("role", "deliveryman") if data else "deliveryman"
     
-    # Evita duplicatas e cadastra como Pendente
     if not any(u["email"] == email for u in users_db):
         users_db.append({
             "email": email,
