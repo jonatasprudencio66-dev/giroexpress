@@ -15,9 +15,9 @@ app.add_middleware(
 
 api_router = APIRouter(prefix="/api")
 
-# Base de dados em memória
+# Base de dados em memória com usuário de teste inicial
 users_db = [
-    {"email": "jonatas_prudencio@hotmail.com", "role": "deliveryman", "status": "Pendente"}
+    {"name": "Usuário Teste", "email": "jonatas_prudencio@hotmail.com", "role": "deliveryman", "status": "Pendente"}
 ]
 
 @api_router.get("/")
@@ -38,7 +38,15 @@ def get_operations():
 
 @api_router.get("/admin/users")
 def get_admin_users():
-    return users_db
+    formatted_users = []
+    for u in users_db:
+        formatted_users.append({
+            "name": u.get("name", "Usuário"),
+            "email": u["email"],
+            "role": u["role"],
+            "status": u["status"]
+        })
+    return formatted_users
 
 @api_router.post("/admin/users/action")
 def user_action(data: dict = None):
@@ -47,11 +55,10 @@ def user_action(data: dict = None):
     
     for u in users_db:
         if u["email"] == email:
-            # Aceita variações de termos em inglês ou português enviadas pelo front
-            if action in ["approve", "aprovar", "activatel"]:
+            if action in ["approve", "aprovar", "activate", "ativar"]:
                 u["status"] = "Aprovado"
             else:
-                u["status"] = "Bloqueado"
+                u["status"] = "Pendente"
                 
     return {"message": "Ação realizada com sucesso"}
 
@@ -82,6 +89,7 @@ def login(data: dict = None):
         
         if not user_record:
             user_record = {
+                "name": "Novo Usuário",
                 "email": email,
                 "role": requested_role or "deliveryman",
                 "status": "Pendente"
@@ -112,9 +120,11 @@ def login(data: dict = None):
 def register(data: dict = None):
     email = data.get("email", "").lower() if data else ""
     role = data.get("role", "deliveryman") if data else "deliveryman"
+    name = data.get("name", "Novo Usuário")
     
     if not any(u["email"] == email for u in users_db):
         users_db.append({
+            "name": name,
             "email": email,
             "role": role,
             "status": "Pendente"
