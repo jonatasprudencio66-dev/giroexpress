@@ -74,8 +74,15 @@ def login(data: dict = None):
         # Busca o usuário cadastrado para checar se já foi aprovado
         user_record = next((u for u in users_db if u["email"] == email), None)
         
+        # Se não estiver na lista, cadastra automaticamente como Pendente para aparecer para o Admin
         if not user_record:
-            raise HTTPException(status_code=400, detail="Conta não encontrada. Faça o cadastro primeiro.")
+            user_record = {
+                "email": email,
+                "role": requested_role or "deliveryman",
+                "status": "Pendente"
+            }
+            users_db.append(user_record)
+            raise HTTPException(status_code=403, detail="Sua conta aguarda aprovação do Administrador.")
         
         if user_record["status"] != "Aprovado":
             raise HTTPException(status_code=403, detail="Sua conta aguarda aprovação do Administrador.")
