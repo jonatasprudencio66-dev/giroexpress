@@ -43,6 +43,10 @@ def get_tickets():
 def get_statements():
     return []
 
+@api_router.get("/deliveries")
+def get_deliveries():
+    return []
+
 @api_router.post("/auth/login")
 def login(data: dict = None):
     email = data.get("email", "").lower() if data else ""
@@ -50,23 +54,19 @@ def login(data: dict = None):
     
     store_emails = ["loja", "store", "comercial"]
     delivery_emails = ["motoboy", "courier", "delivery", "fer.nanda_cs@hotmail.com"]
+    admin_emails = ["jonatasprudencio66@gmail.com"] # Seu email principal de admin
     
-    # Se o frontend mandou o cargo explicitamente no body, respeita ele. 
-    # Caso contrário, tenta inferir pelas palavras-chave do e-mail.
-    if requested_role:
+    if email in admin_emails:
+        role = "admin"
+    elif requested_role:
         role = requested_role
     elif any(keyword in email for keyword in store_emails):
         role = "store"
     elif any(keyword in email for keyword in delivery_emails):
         role = "deliveryman"
     else:
-        # Se for um e-mail novo comum (ex: teste2@hotmail.com) e nenhum cargo foi especificado,
-        # defina como "deliveryman" ou "store" em vez de admin master por segurança.
         role = "deliveryman" 
 
-    token_falso = f"token_{role}_{email}"
-
-    # Empacota o role e o e-mail no token para que o refresh resgate ambos sem perder o dado
     token_falso = f"token_{role}_{email}"
 
     return {
