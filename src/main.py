@@ -15,14 +15,14 @@ app.add_middleware(
 
 api_router = APIRouter(prefix="/api")
 
-# Base de dados em memória com um usuário pendente fixo para validação visual no painel
+# Base de dados em memória
 users_db = [
     {"email": "jonatas_prudencio@hotmail.com", "role": "deliveryman", "status": "Pendente"}
 ]
 
 @api_router.get("/")
 def read_root():
-    return {"message": "GiroExpress API rodando"}
+    return {"message": "API GiroExpress rodando"}
 
 @api_router.get("/admin/stats")
 def get_stats():
@@ -43,10 +43,16 @@ def get_admin_users():
 @api_router.post("/admin/users/action")
 def user_action(data: dict = None):
     email = data.get("email", "").lower() if data else ""
-    action = data.get("action", "") if data else ""
+    action = data.get("action", "").lower() if data else ""
+    
     for u in users_db:
         if u["email"] == email:
-            u["status"] = "Aprovado" if action == "approve" else "Bloqueado"
+            # Aceita variações de termos em inglês ou português enviadas pelo front
+            if action in ["approve", "aprovar", "activatel"]:
+                u["status"] = "Aprovado"
+            else:
+                u["status"] = "Bloqueado"
+                
     return {"message": "Ação realizada com sucesso"}
 
 @api_router.get("/tickets")
@@ -138,6 +144,6 @@ def get_me(authorization: str = Header(None)):
 
 @api_router.post("/auth/logout")
 def logout():
-    return {"message": "Logout com sucesso"}
+    return {"message": "Logout realizado com sucesso"}
 
 app.include_router(api_router)
