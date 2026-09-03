@@ -15,6 +15,9 @@ app.add_middleware(
 
 api_router = APIRouter(prefix="/api")
 
+# Base de dados em memória
+users_db = []
+
 @api_router.get("/")
 def read_root():
     return {"message": "GiroExpress API rodando"}
@@ -33,7 +36,16 @@ def get_operations():
 
 @api_router.get("/admin/users")
 def get_admin_users():
-    return []
+    return users_db
+
+@api_router.post("/admin/users/action")
+def user_action(data: dict = None):
+    email = data.get("email", "").lower() if data else ""
+    action = data.get("action", "") if data else ""
+    for u in users_db:
+        if u["email"] == email:
+            u["status"] = "Aprovado" if action == "approve" else "Bloqueado"
+    return {"message": "Ação realizada com sucesso"}
 
 @api_router.get("/tickets")
 def get_tickets():
@@ -52,20 +64,24 @@ def login(data: dict = None):
     email = data.get("email", "").lower() if data else ""
     requested_role = data.get("role") if data else None
     
-    store_emails = ["loja", "store", "comercial"]
-    delivery_emails = ["motoboy", "courier", "delivery", "fer.nanda_cs@hotmail.com"]
-    admin_emails = ["jonatasprudencio66@gmail.com"] # Seu email principal de admin
+    admin_emails = ["jonatasprudencio66@gmail.com"]
     
+    # Se for o admin principal, libera direto
     if email in admin_emails:
         role = "admin"
-    elif requested_role:
-        role = requested_role
-    elif any(keyword in email for keyword in store_emails):
-        role = "store"
-    elif any(keyword in email for keyword in delivery_emails):
-        role = "deliveryman"
+        status = "Aprovado"
     else:
-        role = "deliveryman" 
+        # Busca o usuário cadastrado para checar se já foi aprovado
+        user_record = next((u for u in users_db if u["email"] == email), None)
+        
+        if not user_record:
+            raise HTTPException(status_code=400, detail="Conta não encontrada. Faça o cadastro primeiro.")
+        
+        if user_record["status"] != "Aprovado":
+            raise HTTPException(status_code=403, detail="Sua conta aguarda aprovação do Administrador.")
+            
+        role = user_record["role"]
+        status = user_record["status"]
 
     token_falso = f"token_{role}_{email}"
 
@@ -75,14 +91,25 @@ def login(data: dict = None):
         "role": role,
         "user": {
             "email": email,
-            "role": role
+            "role": role,
+            "status": status
         }
     }
 
 @api_router.post("/auth/register")
 def register(data: dict = None):
-    email = data.get("email", "") if data else ""
-    return {"message": "Conta criada com sucesso", "email": email}
+    email = data.get("email", "").lower() if data else ""
+    role = data.get("role", "deliveryman") if data else "deliveryman"
+    
+    # Evita duplicatas e cadastra como Pendente
+    if not any(u["email"] == email for u in users_db):
+        users_db.append({
+            "email": email,
+            "role": role,
+            "status": "Pendente"
+        })
+        
+    return {"message": "Conta criada com sucesso! Aguarde a aprovação do Administrador.", "email": email}
 
 @api_router.get("/auth/me")
 def get_me(authorization: str = Header(None)):
@@ -93,19 +120,9 @@ def get_me(authorization: str = Header(None)):
         token_str = authorization.replace("Bearer ", "")
         parts = token_str.split("_")
         
-        # Lê dinamicamente o role e o e-mail embutidos no token gerado no login
         if len(parts) >= 3:
             role = parts[1]
             email = parts[2]
-        else:
-            if "store" in token_str:
-                role = "store"
-                email = "loja@giroexpress.com"
-            elif "deliveryman" in token_str or "motoboy" in token_str or "courier" in token_str:
-                role = "deliveryman"
-                email = "motoboy@giroexpress.com"
-            else:
-                role = "admin"
 
     return {
         "user": {
