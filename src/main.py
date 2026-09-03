@@ -1,8 +1,8 @@
-from fastapi import FastAPI
-
-app = FastAPI()
+from fastapi import FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.routing import APIRouter
+
+app = FastAPI()
 
 app.add_middleware(
     CORSMiddleware,
@@ -13,7 +13,10 @@ app.add_middleware(
     expose_headers=["*"],
 )
 
-api_router = APIRouter(prefix="/api")
+# IMPORTANTE: Removido o prefix="/api" aqui para evitar duplicidade 
+# caso o vercel.json já faça o rewrite para /api. 
+# Se o seu vercel.json remove o /api, deixe o APIRouter sem prefixo ou ajuste conforme o rewrite.
+api_router = APIRouter()
 
 @api_router.get("/")
 def read_root():
@@ -71,10 +74,18 @@ def register(data: dict = None):
     return {"message": "Conta criada com sucesso", "email": email}
 
 @api_router.get("/auth/me")
-def get_me():
+def get_me(authorization: str = Header(None)):
+    # Identifica dinamicamente o role com base no token enviado pelo frontend
+    role = "admin"
+    if authorization:
+        if "store" in authorization:
+            role = "store"
+        elif "deliveryman" in authorization:
+            role = "deliveryman"
+
     return {
         "email": "jonatasprudencio66@gmail.com",
-        "role": "admin"
+        "role": role
     }
 
 @api_router.post("/auth/logout")
@@ -82,3 +93,4 @@ def logout():
     return {"message": "Logout com sucesso"}
 
 app.include_router(api_router)
+
