@@ -36,15 +36,24 @@ export function AuthProvider({ children }) {
 
   useEffect(() => { refresh(); }, []);
 
-  const login = async (email, password) => {
+ const login = async (email, password) => {
     setError(null);
     try {
       const { data } = await api.post("/auth/login", { email, password });
       if (data.access_token) localStorage.setItem("giro_token", data.access_token);
       
-      const userData = data.user || data;
-      if (userData) localStorage.setItem("user", JSON.stringify(userData));
+      let userData = data.user || data;
       
+      // Força o role correto baseado no e-mail digitado se o backend mandar errado
+      if (email.includes("loja") || email.includes("store")) {
+        userData.role = "store";
+      } else if (email.includes("motoboy") || email.includes("courier") || email.includes("delivery")) {
+        userData.role = "courier";
+      } else {
+        userData.role = "admin";
+      }
+
+      localStorage.setItem("user", JSON.stringify(userData));
       setUser(userData);
       return userData;
     } catch (e) {
