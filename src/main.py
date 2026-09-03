@@ -16,7 +16,7 @@ app.add_middleware(
 # IMPORTANTE: Removido o prefix="/api" aqui para evitar duplicidade 
 # caso o vercel.json já faça o rewrite para /api. 
 # Se o seu vercel.json remove o /api, deixe o APIRouter sem prefixo ou ajuste conforme o rewrite.
-api_router = APIRouter()
+api_router = APIRouter(prefix="/api")
 
 @api_router.get("/")
 def read_root():
