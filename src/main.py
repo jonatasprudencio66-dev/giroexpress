@@ -45,15 +45,18 @@ def get_statements():
 
 @api_router.post("/auth/login")
 def login(data: dict = None):
-    email = data.get("email", "") if data else ""
-    role = "admin"
-    if "loja" in email.lower():
+    email = data.get("email", "").lower() if data else ""
+    
+    # Define o cargo dinamicamente baseado no e-mail digitado
+    if "loja" in email:
         role = "store"
-    elif "motoboy" in email.lower():
+    elif "motoboy" in email:
         role = "deliveryman"
+    else:
+        role = "admin"
 
     return {
-        "access_token": "token_falso",
+        "access_token": "token_falso_" + role,
         "token_type": "bearer",
         "role": role,
         "user": {
