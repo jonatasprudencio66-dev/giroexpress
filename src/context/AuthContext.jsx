@@ -15,19 +15,15 @@ export function AuthProvider({ children }) {
         return null;
       }
 
-      const savedUser = localStorage.getItem("user");
-      if (savedUser) {
-        const parsedUser = JSON.parse(savedUser);
-        setUser(parsedUser);
-        return parsedUser;
-      }
+      const { data } = await api.get("/auth/me");
+      const userData = data.user || data;
 
-      const { data } = await api.get("/auth/me"); // Corrigido de /api/auth/me para /auth/me
-      if (data.user) {
-        localStorage.setItem("user", JSON.stringify(data.user));
-        setUser(data.user);
-        return data.user;
+      if (userData) {
+        localStorage.setItem("user", JSON.stringify(userData));
+        setUser(userData);
+        return userData;
       }
+      
       setUser(null);
       return null;
     } catch (e) {
@@ -43,11 +39,14 @@ export function AuthProvider({ children }) {
   const login = async (email, password) => {
     setError(null);
     try {
-      const { data } = await api.post("/auth/login", { email, password }); // Corrigido de /api/auth/login para /auth/login
+      const { data } = await api.post("/auth/login", { email, password });
       if (data.access_token) localStorage.setItem("giro_token", data.access_token);
-      if (data.user) localStorage.setItem("user", JSON.stringify(data.user));
-      setUser(data.user);
-      return data.user;
+      
+      const userData = data.user || data;
+      if (userData) localStorage.setItem("user", JSON.stringify(userData));
+      
+      setUser(userData);
+      return userData;
     } catch (e) {
       const msg = apiError(e);
       setError(msg);
@@ -58,13 +57,16 @@ export function AuthProvider({ children }) {
   const register = async (payload) => {
     setError(null);
     try {
-     const { data } = await api.post("/auth/register", payload);
+      const { data } = await api.post("/auth/register", payload);
       if (data.access_token) localStorage.setItem("giro_token", data.access_token);
-      if (data.user) {
-        localStorage.setItem("user", JSON.stringify(data.user));
+      
+      const userData = data.user || data;
+      if (userData) {
+        localStorage.setItem("user", JSON.stringify(userData));
       }
-      setUser(data.user);
-      return data.user;
+      
+      setUser(userData);
+      return userData;
     } catch (e) {
       const msg = apiError(e);
       setError(msg);
@@ -73,7 +75,7 @@ export function AuthProvider({ children }) {
   };
 
   const logout = async () => {
-    try { await api.post("/auth/logout"); } catch (_) {} // Corrigido de /api/auth/logout para /auth/logout
+    try { await api.post("/auth/logout"); } catch (_) {}
     localStorage.removeItem("giro_token");
     localStorage.removeItem("user");
     setUser(null);

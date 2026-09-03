@@ -75,17 +75,25 @@ def register(data: dict = None):
 
 @api_router.get("/auth/me")
 def get_me(authorization: str = Header(None)):
-    # Identifica dinamicamente o role com base no token enviado pelo frontend
     role = "admin"
+    email = "jonatasprudencio66@gmail.com"
+    
     if authorization:
-        if "store" in authorization:
+        token_str = authorization.replace("Bearer ", "")
+        if "store" in token_str or "loja" in token_str:
             role = "store"
-        elif "deliveryman" in authorization:
+            email = "loja@giroexpress.com"
+        elif "deliveryman" in token_str or "motoboy" in token_str or "courier" in token_str:
             role = "deliveryman"
+            email = "motoboy@giroexpress.com"
+        else:
+            role = "admin"
 
     return {
-        "email": "jonatasprudencio66@gmail.com",
-        "role": role
+        "user": {
+            "email": email,
+            "role": role
+        }
     }
 
 @api_router.post("/auth/logout")
