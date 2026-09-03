@@ -1,5 +1,6 @@
 import axios from "axios";
-export const API_BASE = "https://giroexpress-9ufp.vercel.app/api";
+
+export const API_BASE = "/api";
 
 export const api = axios.create({
   baseURL: API_BASE,
