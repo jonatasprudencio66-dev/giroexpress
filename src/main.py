@@ -166,7 +166,7 @@ def get_me(authorization: str = Header(None)):
         "user": {
             "email": email,
             "role": role,
-            "status": "Aprovado"
+            "status": "APROVADO"
         }
     }
 
