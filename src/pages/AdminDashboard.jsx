@@ -228,25 +228,28 @@ export default function AdminDashboard() {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-800/60">
-              {users.map(u => (
-                <tr key={u.id} className="hover:bg-slate-800/40" data-testid={`user-row-${u.id}`}>
-                  <td className="py-3 px-2 font-semibold text-white">{u.name}</td>
-                  <td className="py-3 px-2"><span className="text-[10px] uppercase bg-slate-800 px-2 py-1 rounded text-orange-400 font-mono">{u.role}</span></td>
-                  <td className="py-3 px-2 text-slate-300">{u.email}</td>
-                  <td className="py-3 px-2">
-                    <span className={`text-[10px] px-2 py-0.5 rounded font-bold ${u.status === "active" || u.status === "Aprovado" ? "bg-emerald-500/20 text-emerald-400" : (u.status === "pending" || u.status === "Pendente") ? "bg-amber-500/20 text-amber-400" : "bg-rose-500/20 text-rose-400"}`}>
-                      {String(u.status || "").toUpperCase()}
-                    </span>
-                  </td>
-                  <td className="py-3 px-2">
-                    <div className="flex items-center space-x-2">
-                      {(u.status === "pending" || u.status === "Pendente") && <button data-testid={`approve-user-${u.id}`} onClick={() => approveUser(u.id)} className="bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold px-3 py-1 rounded">Aprovar</button>}
-                      {u.role !== "admin" && u.status !== "blocked" && u.status !== "Bloqueado" && <button data-testid={`block-user-${u.id}`} onClick={() => patchUser(u.id, { status: "blocked" }, "Usuário bloqueado")} className="bg-slate-800 hover:bg-rose-900/40 text-rose-400 border border-slate-700 text-xs px-3 py-1 rounded">Bloquear</button>}
-                      {(u.status === "blocked" || u.status === "Bloqueado") && <button onClick={() => patchUser(u.id, { status: "active" }, "Usuário reativado")} className="bg-slate-800 hover:bg-emerald-900/40 text-emerald-400 border border-slate-700 text-xs px-3 py-1 rounded">Reativar</button>}
-                    </div>
-                  </td>
-                </tr>
-              ))}
+              {users.map(u => { 
+                const uid = u.id || u._id; 
+                return (
+                  <tr key={uid} className="hover:bg-slate-800/40" data-testid={`user-row-${uid}`}>
+                    <td className="py-3 px-2 font-semibold text-white">{u.name}</td>
+                    <td className="py-3 px-2"><span className="text-[10px] uppercase bg-slate-800 px-2 py-1 rounded text-orange-400 font-mono">{u.role}</span></td>
+                    <td className="py-3 px-2 text-slate-300">{u.email}</td>
+                    <td className="py-3 px-2">
+                      <span className={`text-[10px] px-2 py-0.5 rounded font-bold ${u.status === "active" || u.status === "Aprovado" ? "bg-emerald-500/20 text-emerald-400" : (u.status === "pending" || u.status === "Pendente") ? "bg-amber-500/20 text-amber-400" : "bg-rose-500/20 text-rose-400"}`}>
+                        {String(u.status || "").toUpperCase()}
+                      </span>
+                    </td>
+                    <td className="py-3 px-2">
+                      <div className="flex items-center space-x-2">
+                        {(u.status === "pending" || u.status === "Pendente") && <button data-testid={`approve-user-${uid}`} onClick={() => approveUser(uid)} className="bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold px-3 py-1 rounded">Aprovar</button>}
+                        {u.role !== "admin" && u.status !== "blocked" && u.status !== "Bloqueado" && <button data-testid={`block-user-${uid}`} onClick={() => patchUser(uid, { status: "blocked" }, "Usuário bloqueado")} className="bg-slate-800 hover:bg-rose-900/40 text-rose-400 border border-slate-700 text-xs px-3 py-1 rounded">Bloquear</button>}
+                        {(u.status === "blocked" || u.status === "Bloqueado") && <button onClick={() => patchUser(uid, { status: "active" }, "Usuário reativado")} className="bg-slate-800 hover:bg-emerald-900/40 text-emerald-400 border border-slate-700 text-xs px-3 py-1 rounded">Reativar</button>}
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
