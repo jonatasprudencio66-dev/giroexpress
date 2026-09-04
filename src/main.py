@@ -162,10 +162,6 @@ def get_me(authorization: str = Header(None)):
             role = parts[1]
             email = parts[2]
 
-    # Verifica na base de dados se existe, senão assume padrão aprovado
-    user_record = next((u for u in users_db if u["email"].lower() == email.lower()), None)
-    status = user_record.get("status", "Aprovado") if user_record else "Aprovado"
-
     return {
         "user": {
             "email": email,
