@@ -229,7 +229,8 @@ export default function AdminDashboard() {
             </thead>
             <tbody className="divide-y divide-slate-800/60">
               {users.map(u => { 
-                const uid = u.id || u._id; 
+                console.log("Objeto usuário:", u);
+                const uid = u.id || u._id?.toString?.() || u._id; 
                 return (
                   <tr key={uid} className="hover:bg-slate-800/40" data-testid={`user-row-${uid}`}>
                     <td className="py-3 px-2 font-semibold text-white">{u.name}</td>
