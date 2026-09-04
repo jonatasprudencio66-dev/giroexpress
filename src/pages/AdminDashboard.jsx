@@ -44,10 +44,27 @@ export default function AdminDashboard() {
 
   useEffect(() => { load(); const t = setInterval(load, 8000); return () => clearInterval(t); }, []);
 
-  const patchUser = async (identifier, upd, msg) => {
-    try { await api.patch(`/admin/users/${identifier}`, upd); toast.success(msg); await load(); } catch (e) { toast.error(apiError(e)); }
+ const patchUser = async (identifier, upd, msg) => {
+    try { 
+      const encodedId = encodeURIComponent(identifier);
+      await api.patch(`/admin/users/${encodedId}`, upd); 
+      toast.success(msg); 
+      await load(); 
+    } catch (e) { 
+      toast.error(apiError(e)); 
+    }
   };
-  const approveUser = async (identifier) => { try { await api.post(`/admin/users/${identifier}/approve`); toast.success("Usuário aprovado."); await load(); } catch (e) { toast.error(apiError(e)); } };
+
+  const approveUser = async (identifier) => { 
+    try { 
+      const encodedId = encodeURIComponent(identifier);
+      await api.post(`/admin/users/${encodedId}/approve`); 
+      toast.success("Usuário aprovado."); 
+      await load(); 
+    } catch (e) { 
+      toast.error(apiError(e)); 
+    } 
+  };
   const approveStmt = async (id, ok) => { try { await api.post(`/statements/${id}/approve`, { approved: ok }); toast.success(ok ? "Repasse aprovado!" : "Comprovante rejeitado."); await load(); } catch (e) { toast.error(apiError(e)); } };
   const resolveTicket = async (id) => { try { await api.post(`/tickets/${id}/resolve`); toast.success("Chamado resolvido."); await load(); } catch (e) { toast.error(apiError(e)); } };
 
