@@ -48,7 +48,6 @@ def get_admin_users():
         })
     return formatted_users
 
-Python
 @api_router.post("/admin/users/{identifier}/approve")
 @api_router.post("/admin/users/approve")
 def approve_user(identifier: str = None, data: dict = None):
@@ -91,8 +90,12 @@ def get_deliveries():
 
 @api_router.post("/auth/login")
 def login(data: dict = None):
-    email = data.get("email", "").lower() if data else ""
-    requested_role = data.get("role") if data else None
+    if not data:
+        raise HTTPException(status_code=400, detail="Dados de login inválidos")
+        
+    email = data.get("email", "")
+    email = email.lower() if email else ""
+    requested_role = data.get("role")
     
     admin_emails = ["jonatasprudencio66@gmail.com"]
     
@@ -100,7 +103,7 @@ def login(data: dict = None):
         role = "admin"
         status = "Aprovado"
     else:
-        user_record = next((u for u in users_db if u["email"] == email), None)
+        user_record = next((u for u in users_db if u["email"].lower() == email), None)
         
         if not user_record:
             user_record = {
@@ -112,11 +115,11 @@ def login(data: dict = None):
             users_db.append(user_record)
             raise HTTPException(status_code=403, detail="Sua conta aguarda aprovação do Administrador.")
         
-        if user_record["status"] != "Aprovado":
+        if user_record.get("status") != "Aprovado":
             raise HTTPException(status_code=403, detail="Sua conta aguarda aprovação do Administrador.")
             
-        role = user_record["role"]
-        status = user_record["status"]
+        role = user_record.get("role", "deliveryman")
+        status = user_record.get("status", "Pendente")
 
     token_falso = f"token_{role}_{email}"
 
