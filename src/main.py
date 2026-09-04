@@ -48,19 +48,31 @@ def get_admin_users():
         })
     return formatted_users
 
-@api_router.post("/admin/users/action")
-def user_action(data: dict = None):
-    email = data.get("email", "").lower() if data else ""
-    action = data.get("action", "").lower() if data else ""
+@api_router.post("/admin/users/approve")
+def approve_user(data: dict = None):
+    email = data.get("identifier", "").lower() if data else ""
+    for u in users_db:
+        if u["email"].lower() == email:
+            u["status"] = "Aprovado"
+            return {"message": "Usuário aprovado com sucesso"}
+    raise HTTPException(status_code=404, detail="Usuário não encontrado")
+
+@api_router.patch("/admin/users/update-status")
+def update_user_status(data: dict = None):
+    email = data.get("identifier", "").lower() if data else ""
+    new_status = data.get("status", "").lower() if data else ""
     
     for u in users_db:
-        if u["email"] == email:
-            if action in ["approve", "aprovar", "activate", "ativar"]:
+        if u["email"].lower() == email:
+            if new_status in ["blocked", "bloqueado"]:
+                u["status"] = "Bloqueado"
+            elif new_status in ["active", "ativo", "aprovado"]:
                 u["status"] = "Aprovado"
             else:
                 u["status"] = "Pendente"
-                
-    return {"message": "Ação realizada com sucesso"}
+            return {"message": "Status atualizado com sucesso"}
+            
+    raise HTTPException(status_code=404, detail="Usuário não encontrado")
 
 @api_router.get("/tickets")
 def get_tickets():
