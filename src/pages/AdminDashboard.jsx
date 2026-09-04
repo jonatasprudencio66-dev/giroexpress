@@ -243,7 +243,7 @@ export default function AdminDashboard() {
                     <td className="py-3 px-2">
                       <div className="flex items-center space-x-2">
                         {(u.status === "pending" || u.status === "Pendente") && <button data-testid={`approve-user-${uid}`} onClick={() => approveUser(uid)} className="bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold px-3 py-1 rounded">Aprovar</button>}
-                        {u.role !== "admin" && u.status !== "blocked" && u.status !== "Bloqueado" && <button data-testid={`block-user-${uid}`} onClick={() => patchUser(uid, { status: "blocked" }, "Usuário bloqueado")} className="bg-slate-800 hover:bg-rose-900/40 text-rose-400 border border-slate-700 text-xs px-3 py-1 rounded">Bloquear</button>}
+                       {u.role !== "admin" && u.status !== "blocked" && u.status !== "Bloqueado" && <button data-testid={`block-user-${uid}`} onClick={() => patchUser(uid, { status: "blocked" }, "Usuário bloqueado")} className="bg-slate-800 hover:bg-rose-900/40 text-rose-400 border border-slate-700 text-xs px-3 py-1 rounded">Bloquear</button>}
                         {(u.status === "blocked" || u.status === "Bloqueado") && <button onClick={() => patchUser(uid, { status: "active" }, "Usuário reativado")} className="bg-slate-800 hover:bg-emerald-900/40 text-emerald-400 border border-slate-700 text-xs px-3 py-1 rounded">Reativar</button>}
                       </div>
                     </td>
