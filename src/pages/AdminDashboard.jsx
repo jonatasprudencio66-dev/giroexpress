@@ -44,10 +44,9 @@ export default function AdminDashboard() {
 
   useEffect(() => { load(); const t = setInterval(load, 8000); return () => clearInterval(t); }, []);
 
-const patchUser = async (identifier, upd, msg) => {
+  const patchUser = async (identifier, upd, msg) => {
     try { 
-      const safeId = encodeURIComponent(String(identifier).trim());
-      await api.patch(`/admin/users/${safeId}`, upd); 
+      await api.patch(`/admin/users/update-status`, { identifier, ...upd }); 
       toast.success(msg); 
       await load(); 
     } catch (e) { 
@@ -57,14 +56,14 @@ const patchUser = async (identifier, upd, msg) => {
 
   const approveUser = async (identifier) => { 
     try { 
-      const safeId = encodeURIComponent(String(identifier).trim());
-      await api.post(`/admin/users/${safeId}/approve`); 
+      await api.post(`/admin/users/approve`, { identifier }); 
       toast.success("Usuário aprovado."); 
       await load(); 
     } catch (e) { 
       toast.error(apiError(e)); 
     } 
   };
+  
   const approveStmt = async (id, ok) => { try { await api.post(`/statements/${id}/approve`, { approved: ok }); toast.success(ok ? "Repasse aprovado!" : "Comprovante rejeitado."); await load(); } catch (e) { toast.error(apiError(e)); } };
   const resolveTicket = async (id) => { try { await api.post(`/tickets/${id}/resolve`); toast.success("Chamado resolvido."); await load(); } catch (e) { toast.error(apiError(e)); } };
 
@@ -259,9 +258,9 @@ const patchUser = async (identifier, upd, msg) => {
                     </td>
                     <td className="py-3 px-2">
                       <div className="flex items-center space-x-2">
-                        {(u.status === "pending" || u.status === "Pendente") && <button data-testid={`approve-user-${uid}`} onClick={() => approveUser(uid)} className="bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold px-3 py-1 rounded">Aprovar</button>}
-                        {u.role !== "admin" && u.status !== "blocked" && u.status !== "Bloqueado" && <button data-testid={`block-user-${uid}`} onClick={() => patchUser(uid, { status: "blocked" }, "Usuário bloqueado")} className="bg-slate-800 hover:bg-rose-900/40 text-rose-400 border border-slate-700 text-xs px-3 py-1 rounded">Bloquear</button>}
-                        {(u.status === "blocked" || u.status === "Bloqueado") && <button onClick={() => patchUser(uid, { status: "active" }, "Usuário reativado")} className="bg-slate-800 hover:bg-emerald-900/40 text-emerald-400 border border-slate-700 text-xs px-3 py-1 rounded">Reativar</button>}
+                        {(u.status === "pending" || u.status === "Pendente") && <button data-testid={`approve-user-${uid}`} onClick={() => approveUser(u.email || uid)} className="bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold px-3 py-1 rounded">Aprovar</button>}
+                        {u.role !== "admin" && u.status !== "blocked" && u.status !== "Bloqueado" && <button data-testid={`block-user-${uid}`} onClick={() => patchUser(u.email || uid, { status: "blocked" }, "Usuário bloqueado")} className="bg-slate-800 hover:bg-rose-900/40 text-rose-400 border border-slate-700 text-xs px-3 py-1 rounded">Bloquear</button>}
+                        {(u.status === "blocked" || u.status === "Bloqueado") && <button onClick={() => patchUser(u.email || uid, { status: "active" }, "Usuário reativado")} className="bg-slate-800 hover:bg-emerald-900/40 text-emerald-400 border border-slate-700 text-xs px-3 py-1 rounded">Reativar</button>}
                       </div>
                     </td>
                   </tr>
@@ -269,7 +268,6 @@ const patchUser = async (identifier, upd, msg) => {
               })}
             </tbody>
           </table>
-      
         </div>
       </section>
 
