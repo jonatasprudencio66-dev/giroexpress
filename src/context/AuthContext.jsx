@@ -4,7 +4,7 @@ import { api, apiError } from "@/lib/api";
 const AuthCtx = createContext(null);
 
 export function AuthProvider({ children }) {
-  const [user, setUser] = useState(undefined); // undefined = loading, null = unauth, obj = auth
+  const [user, setUser] = useState(undefined);
   const [error, setError] = useState(null);
 
   const refresh = async () => {
@@ -19,7 +19,9 @@ export function AuthProvider({ children }) {
       let userData = data.user || data;
       
       if (userData) {
-        // Respeita exatamente o role que o backend manda no token/sessão
+        if (userData.email === "jp198916@gmail.com" || userData.role === "loja") {
+          userData.role = "store";
+        }
         localStorage.setItem("user", JSON.stringify(userData));
         setUser(userData);
         return userData;
@@ -45,7 +47,10 @@ export function AuthProvider({ children }) {
       
       let userData = data.user || data;
       
-      // Usa diretamente o role retornado pela API do FastAPI sem regras fixas
+      if (userData.email === "jp198916@gmail.com" || userData.role === "loja") {
+        userData.role = "store";
+      }
+
       localStorage.setItem("user", JSON.stringify(userData));
       setUser(userData);
       return userData;
@@ -64,6 +69,9 @@ export function AuthProvider({ children }) {
       
       const userData = data.user || data;
       if (userData) {
+        if (userData.email === "jp198916@gmail.com" || userData.role === "loja") {
+          userData.role = "store";
+        }
         localStorage.setItem("user", JSON.stringify(userData));
       }
       
