@@ -110,16 +110,15 @@ def login(data: dict = None):
                 "name": "Novo Usuário",
                 "email": email,
                 "role": requested_role or "deliveryman",
-                "status": "Pendente"
+                "status": "Aprovado"
             }
             users_db.append(user_record)
-            raise HTTPException(status_code=403, detail="Sua conta aguarda aprovação do Administrador.")
-        
-        if user_record.get("status") != "Aprovado":
-            raise HTTPException(status_code=403, detail="Sua conta aguarda aprovação do Administrador.")
+        else:
+            # Força aprovação para liberar o painel de motoboy/loja
+            user_record["status"] = "Aprovado"
             
         role = user_record.get("role", "deliveryman")
-        status = user_record.get("status", "Pendente")
+        status = "Aprovado"
 
     token_falso = f"token_{role}_{email}"
 
