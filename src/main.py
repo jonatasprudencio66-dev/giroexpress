@@ -149,31 +149,32 @@ def register(data: dict = None):
         
     return {"message": "Conta criada com sucesso! Aguarde a aprovação do Administrador.", "email": email}
 
-@api_router.get("/auth/me")
-def get_me(authorization: str = Header(None)):
-    role = "deliveryman"
-    email = "jonatas_prudencio@hotmail.com"
+@api_router.post("/auth/login")
+def login(credentials: dict):
+    email = credentials.get("email", "").lower()
+    password = credentials.get("password", "")
     
-    if authorization:
-        token_str = authorization.replace("Bearer ", "")
-        parts = token_str.split("_")
-        
-        if len(parts) >= 3:
-            role = parts[1]
-            email = parts[2]
-
-    # Procura o usuário na base de dados para garantir o perfil correto (loja, admin ou deliveryman)
-    user_record = next((u for u in users_db if u["email"].lower() == email.lower()), None)
-    if user_record and "role" in user_record:
-        role = user_record["role"]
-
+    # Procura o usuário na base de dados
+    user_record = next((u for u in users_db if u["email"].lower() == email), None)
+    
+    if not user_record:
+        # Se não achar na lista, cria um padrão como loja se o e-mail for o seu, ou deliveryman
+        role = "store" if email == "jp198916@gmail.com" else "deliveryman"
+        user_record = {"email": email, "role": role, "status": "APROVADO"}
+        users_db.append(user_record)
+    
+    real_role = user_record.get("role", "deliveryman")
+    
     return {
+        "access_token": f"token_{real_role}_{email}",
+        "token_type": "bearer",
         "user": {
             "email": email,
-            "role": role,
+            "role": real_role,
             "status": "APROVADO"
         }
     }
+
 
 @api_router.post("/auth/logout")
 def logout():
