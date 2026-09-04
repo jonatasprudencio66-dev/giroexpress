@@ -44,10 +44,10 @@ export default function AdminDashboard() {
 
   useEffect(() => { load(); const t = setInterval(load, 8000); return () => clearInterval(t); }, []);
 
- const patchUser = async (identifier, upd, msg) => {
+const patchUser = async (identifier, upd, msg) => {
     try { 
-      const encodedId = encodeURIComponent(identifier);
-      await api.patch(`/admin/users/${encodedId}`, upd); 
+      const safeId = encodeURIComponent(String(identifier).trim());
+      await api.patch(`/admin/users/${safeId}`, upd); 
       toast.success(msg); 
       await load(); 
     } catch (e) { 
@@ -57,8 +57,8 @@ export default function AdminDashboard() {
 
   const approveUser = async (identifier) => { 
     try { 
-      const encodedId = encodeURIComponent(identifier);
-      await api.post(`/admin/users/${encodedId}/approve`); 
+      const safeId = encodeURIComponent(String(identifier).trim());
+      await api.post(`/admin/users/${safeId}/approve`); 
       toast.success("Usuário aprovado."); 
       await load(); 
     } catch (e) { 
@@ -269,6 +269,7 @@ export default function AdminDashboard() {
               })}
             </tbody>
           </table>
+      
         </div>
       </section>
 
