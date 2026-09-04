@@ -162,6 +162,11 @@ def get_me(authorization: str = Header(None)):
             role = parts[1]
             email = parts[2]
 
+    # Procura o usuário na base de dados para garantir o perfil correto (loja, admin ou deliveryman)
+    user_record = next((u for u in users_db if u["email"].lower() == email.lower()), None)
+    if user_record and "role" in user_record:
+        role = user_record["role"]
+
     return {
         "user": {
             "email": email,
