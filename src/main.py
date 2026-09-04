@@ -152,25 +152,50 @@ def register(data: dict = None):
 @api_router.post("/auth/login")
 def login(credentials: dict):
     email = credentials.get("email", "").lower()
-    password = credentials.get("password", "")
     
-    # Procura o usuário na base de dados
+    # Procura o usuário cadastrado no banco de dados da aplicação
     user_record = next((u for u in users_db if u["email"].lower() == email), None)
     
-    if not user_record:
-        # Se não achar na lista, cria um padrão como loja se o e-mail for o seu, ou deliveryman
-        role = "store" if email == "jp198916@gmail.com" else "deliveryman"
+    # Se não encontrar, define como deliveryman por padrão ou store se contiver loja/store no e-mail
+    if user_record:
+        role = user_record.get("role", "deliveryman")
+    else:
+        role = "store" if "loja" in email or "store" in email else "deliveryman"
         user_record = {"email": email, "role": role, "status": "APROVADO"}
         users_db.append(user_record)
-    
-    real_role = user_record.get("role", "deliveryman")
-    
+        
     return {
-        "access_token": f"token_{real_role}_{email}",
+        "access_token": f"token_{role}_{email}",
         "token_type": "bearer",
         "user": {
             "email": email,
-            "role": real_role,
+            "role": role,
+            "status": "APROVADO"
+        }
+    }
+
+@api_router.get("/auth/me")
+def get_me(authorization: str = Header(None)):
+    email = "jonatas_prudencio@hotmail.com"
+    
+    if authorization:
+        token_str = authorization.replace("Bearer ", "")
+        parts = token_str.split("_")
+        if len(parts) >= 3:
+            email = parts[2]
+
+    # Busca o perfil exato salvo no registro do usuário
+    user_record = next((u for u in users_db if u["email"].lower() == email.lower()), None)
+    
+    if user_record:
+        role = user_record.get("role", "deliveryman")
+    else:
+        role = "store" if "loja" in email.lower() or "store" in email.lower() else "deliveryman"
+
+    return {
+        "user": {
+            "email": email,
+            "role": role,
             "status": "APROVADO"
         }
     }
