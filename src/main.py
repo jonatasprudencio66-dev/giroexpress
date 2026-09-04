@@ -48,9 +48,12 @@ def get_admin_users():
         })
     return formatted_users
 
+Python
+@api_router.post("/admin/users/{identifier}/approve")
 @api_router.post("/admin/users/approve")
-def approve_user(data: dict = None):
-    email = data.get("identifier", "").lower() if data else ""
+def approve_user(identifier: str = None, data: dict = None):
+    email = identifier or (data.get("identifier") if data else "")
+    email = email.lower()
     for u in users_db:
         if u["email"].lower() == email:
             u["status"] = "Aprovado"
