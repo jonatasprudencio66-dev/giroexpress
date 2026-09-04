@@ -17,7 +17,7 @@ api_router = APIRouter(prefix="/api")
 
 # Base de dados em memória com usuário de teste inicial
 users_db = [
-    {"name": "Usuário Teste", "email": "jonatas_prudencio@hotmail.com", "role": "deliveryman", "status": "Pendente"}
+    {"name": "Usuário Teste", "email": "jonatas_prudencio@hotmail.com", "role": "deliveryman", "status": "Aprovado"}
 ]
 
 @api_router.get("/")
