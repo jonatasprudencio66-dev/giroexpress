@@ -151,8 +151,8 @@ def register(data: dict = None):
 
 @api_router.get("/auth/me")
 def get_me(authorization: str = Header(None)):
-    role = "admin"
-    email = "jonatasprudencio66@gmail.com"
+    role = "deliveryman"
+    email = "jonatas_prudencio@hotmail.com"
     
     if authorization:
         token_str = authorization.replace("Bearer ", "")
@@ -162,10 +162,15 @@ def get_me(authorization: str = Header(None)):
             role = parts[1]
             email = parts[2]
 
+    # Verifica na base de dados se existe, senão assume padrão aprovado
+    user_record = next((u for u in users_db if u["email"].lower() == email.lower()), None)
+    status = user_record.get("status", "Aprovado") if user_record else "Aprovado"
+
     return {
         "user": {
             "email": email,
-            "role": role
+            "role": role,
+            "status": "Aprovado"
         }
     }
 
