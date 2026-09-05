@@ -1,6 +1,8 @@
 import axios from "axios";
 
-export const API_BASE = "/api";
+export const API_BASE = "https://seu-backend-url.com/api"; 
+// ou o link do ngrok se estiver testando localmente:
+// export const API_BASE = "https://xxxx.ngrok-free.app/api";
 
 export const api = axios.create({
   baseURL: API_BASE,
