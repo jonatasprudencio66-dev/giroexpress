@@ -22,6 +22,18 @@ users_db = [
         "email": "jonatasprudencio66@gmail.com",
         "role": "admin",
         "status": "Aprovado"
+    },
+    {
+        "name": "Usuário Teste",
+        "email": "jonatas_prudencio@hotmail.com",
+        "role": "deliveryman",
+        "status": "Aprovado"
+    },
+    {
+        "name": "Loja Teste Bloqueada",
+        "email": "loja.bloqueada@exemplo.com",
+        "role": "store",
+        "status": "Bloqueado"
     }
 ]
 
@@ -54,7 +66,6 @@ def get_admin_users():
     return formatted_users
 
 @api_router.post("/admin/users/{identifier}/approve")
-@api_router.post("/admin/users/approve")
 def approve_user(identifier: str = None, data: dict = None):
     email = identifier or (data.get("identifier") if data else "")
     email = email.lower()
