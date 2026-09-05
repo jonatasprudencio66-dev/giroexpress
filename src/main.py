@@ -17,7 +17,12 @@ api_router = APIRouter(prefix="/api")
 
 # Base de dados em memória com usuário de teste inicial
 users_db = [
-    {"name": "Usuário Teste", "email": "jonatas_prudencio@hotmail.com", "role": "deliveryman", "status": "Aprovado"}
+    {
+        "name": "Administrador Master",
+        "email": "jonatasprudencio66@gmail.com",
+        "role": "admin",
+        "status": "Aprovado"
+    }
 ]
 
 @api_router.get("/")
@@ -113,9 +118,19 @@ def login(data: dict = None):
     if email in admin_emails:
         role = "admin"
         status = "Aprovado"
+        return {
+            "access_token": f"token_{role}_{email}",
+            "token_type": "bearer",
+            "role": role,
+            "user": {
+                "name": "Administrador Master",
+                "email": email,
+                "role": role,
+                "status": status
+            }
+        }
     else:
         user_record = next((u for u in users_db if u["email"].lower() == email), None)
-        
         if not user_record:
             user_record = {
                 "name": "Novo Usuário",
@@ -125,9 +140,8 @@ def login(data: dict = None):
             }
             users_db.append(user_record)
         else:
-            # Força aprovação para liberar o painel de motoboy/loja
             user_record["status"] = "Aprovado"
-            
+
         role = user_record.get("role", "deliveryman")
         status = "Aprovado"
 
