@@ -1,14 +1,13 @@
-t
 import React, { useState, useEffect } from "react";
 import Layout from "../components/Layout";
 import ChatModal from "../components/ChatModal";
 import { Plus, Trash2, MessageSquare } from "lucide-react";
 import { api, apiError } from "../lib/api";
 import { toast } from "react-hot-toast";
-import { useAuth } from "../context/AuthContext"; // Adicione o import do seu contexto de autenticação se necessário
+import { useAuth } from "../context/AuthContext";
 
 export default function StoreDashboard() {
-  const { user: currentUser } = useAuth(); // <--- ADICIONE ESTA LINHA AQUI
+  const { user: currentUser } = useAuth();
   const [activeTab, setActiveTab] = useState("deliveries");
   const [deliveries, setDeliveries] = useState([]);
   const [products, setProducts] = useState([]);
@@ -35,7 +34,7 @@ export default function StoreDashboard() {
     category: "Geral"
   });
 
-useEffect(() => {
+  useEffect(() => {
     if (!currentUser || (!currentUser.id && !currentUser._id)) return;
     const userId = currentUser.id || currentUser._id;
     
@@ -45,11 +44,10 @@ useEffect(() => {
 
     ws.onmessage = (event) => {
       const data = JSON.parse(event.data);
-      // Notifica visualmente que chegou mensagem nova
-     toast.success(`💬 Nova mensagem de ${data.sender_name}: ${data.text}`, {
-  duration: 5000,
-  position: "top-right"
-});
+      toast.success(`💬 Nova mensagem de ${data.sender_name}: ${data.text}`, {
+        duration: 5000,
+        position: "top-right"
+      });
     };
 
     return () => {
@@ -285,7 +283,7 @@ useEffect(() => {
                           ...deliveryForm, 
                           pickup_address: "Loja",
                           price: item.price,
-                          dropoff_address: deliveryForm.dropoff_address ? deliveryForm.dropoff_address : item.address,
+                          dropoff_address: item.address,
                           notes: `${item.label} - R$ ${item.price},00`
                         });
                       }}
