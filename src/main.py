@@ -6,6 +6,10 @@ import os
 
 app = FastAPI()
 
+@app.get("/")
+def root():
+    return {"message": "API GiroExpress rodando"}
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
