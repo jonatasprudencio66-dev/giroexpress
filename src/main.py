@@ -100,8 +100,7 @@ def create_delivery(data: dict = None):
 @api_router.post("/auth/login")
 def login(data: dict = None):
 
-@api_router.post("/auth/login")
-def login(data: dict = None):
+
     if not data:
         raise HTTPException(status_code=400, detail="Dados de login inválidos")
         
