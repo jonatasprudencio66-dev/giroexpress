@@ -61,7 +61,7 @@ def get_admin_users():
             "name": u.get("name", "Usuário"),
             "email": u["email"],
             "role": u["role"],
-            "status": u["status"]
+            "status": u.get("status", "Pendente")
         })
     return formatted_users
 
