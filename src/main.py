@@ -1,6 +1,8 @@
 from fastapi import FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.routing import APIRouter
+import json
+import os
 
 app = FastAPI()
 
@@ -15,27 +17,46 @@ app.add_middleware(
 
 api_router = APIRouter(prefix="/api")
 
-# Base de dados em memória com usuário de teste inicial
-users_db = [
-    {
-        "name": "Administrador Master",
-        "email": "jonatasprudencio66@gmail.com",
-        "role": "admin",
-        "status": "Aprovado"
-    },
-    {
-        "name": "Usuário Teste",
-        "email": "jonatas_prudencio@hotmail.com",
-        "role": "deliveryman",
-        "status": "Aprovado"
-    },
-    {
-        "name": "Novo Motoboy Teste",
-        "email": "teste1@gmail.com",
-        "role": "deliveryman",
-        "status": "Pendente"
-    }
-]
+USERS_FILE = "users.json"
+
+def load_users():
+    if os.path.exists(USERS_FILE):
+        try:
+            with open(USERS_FILE, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            pass
+    return [
+        {
+            "name": "Administrador Master",
+            "email": "jonatasprudencio66@gmail.com",
+            "role": "admin",
+            "status": "Aprovado"
+        },
+        {
+            "name": "Usuário Teste",
+            "email": "jonatas_prudencio@hotmail.com",
+            "role": "deliveryman",
+            "status": "Aprovado"
+        },
+        {
+            "name": "Novo Motoboy Teste",
+            "email": "teste1@gmail.com",
+            "role": "deliveryman",
+            "status": "Pendente"
+        }
+    ]
+
+def save_users(users):
+    try:
+        with open(USERS_FILE, "w", encoding="utf-8") as f:
+            json.dump(users, f, ensure_ascii=False, indent=4)
+    except Exception:
+        pass
+
+# Base de dados carregada via arquivo JSON
+users_db = load_users()
+
 
 @api_router.get("/")
 def read_root():
@@ -76,6 +97,7 @@ def approve_user(identifier: str = None, data: dict = None):
     for u in users_db:
         if u["email"].lower() == email:
             u["status"] = "Aprovado"
+            save_users(users_db)  # Salva permanentemente no arquivo JSON
             return {"message": "Usuário aprovado com sucesso", "user": u}
             
     raise HTTPException(status_code=404, detail="Usuário não encontrado")
@@ -196,9 +218,9 @@ def register(data: dict = None):
         "role": role,
         "status": "Pendente"  # Nasce pendente para exigir aprovação do admin
     }
-    users_db.append(new_user)
-
-    return {"message": "Cadastro realizado com sucesso. Aguardando aprovação do admin.", "user": new_user}
+  
+    save_users(users_db)  # Salva no arquivo JSON
+    return {"message": "Cadastro realizado com sucesso...", "user": new_user}
 
 @api_router.post("/auth/login")
 def login(credentials: dict):
