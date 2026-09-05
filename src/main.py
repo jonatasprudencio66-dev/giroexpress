@@ -87,6 +87,18 @@ def get_statements():
 @api_router.get("/deliveries")
 def get_deliveries():
     return []
+@api_router.get("/deliveries")
+def get_deliveries():
+    return []
+
+@api_router.post("/deliveries")
+def create_delivery(data: dict = None):
+    if not data:
+        raise HTTPException(status_code=400, detail="Dados da entrega inválidos")
+    return {"message": "Entrega criada com sucesso", "delivery": data}
+
+@api_router.post("/auth/login")
+def login(data: dict = None):
 
 @api_router.post("/auth/login")
 def login(data: dict = None):
