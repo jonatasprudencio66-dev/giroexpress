@@ -1,11 +1,14 @@
+t
 import React, { useState, useEffect } from "react";
 import Layout from "../components/Layout";
 import ChatModal from "../components/ChatModal";
 import { Plus, Trash2, MessageSquare } from "lucide-react";
 import { api, apiError } from "../lib/api";
 import { toast } from "react-hot-toast";
+import { useAuth } from "../context/AuthContext"; // Adicione o import do seu contexto de autenticação se necessário
 
 export default function StoreDashboard() {
+  const { user: currentUser } = useAuth(); // <--- ADICIONE ESTA LINHA AQUI
   const [activeTab, setActiveTab] = useState("deliveries");
   const [deliveries, setDeliveries] = useState([]);
   const [products, setProducts] = useState([]);
