@@ -141,20 +141,21 @@ def login(data: dict = None):
             }
         }
     else:
-        user_record = next((u for u in users_db if u["email"].lower() == email), None)
-        if not user_record:
-            user_record = {
-                "name": "Novo Usuário",
-                "email": email,
-                "role": requested_role or "deliveryman",
-                "status": "Aprovado"
-            }
-            users_db.append(user_record)
-        else:
-            user_record["status"] = "Aprovado"
+      user_record = next((u for u in users_db if u["email"].lower() == email), None)
+    if not user_record:
+        user_record = {
+            "name": "Novo Usuário",
+            "email": email,
+            "role": requested_role or "deliveryman",
+            "status": "Pendente"
+        }
+        users_db.append(user_record)
+    else:
+        # Mantém o status existente ou força se necessário
+        pass
 
-        role = user_record.get("role", "deliveryman")
-        status = "Aprovado"
+    role = user_record.get("role", "deliveryman")
+    status = user_record.get("status", "Pendente")
 
     token_falso = f"token_{role}_{email}"
 
