@@ -43,7 +43,7 @@ def load_users():
             "name": "Novo Motoboy Teste",
             "email": "teste1@gmail.com",
             "role": "deliveryman",
-            "status": "Pendente"
+            "status": "Aprovado"  # Alterado para nascer aprovado na nuvem
         }
     ]
 
