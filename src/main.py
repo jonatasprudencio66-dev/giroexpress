@@ -43,7 +43,7 @@ def load_users():
             "name": "Novo Motoboy Teste",
             "email": "teste1@gmail.com",
             "role": "deliveryman",
-            "status": "Aprovado"  # Alterado para nascer aprovado na nuvem
+            "status": "Aprovado"
         }
     ]
 
@@ -97,13 +97,14 @@ def approve_user(identifier: str = None, data: dict = None):
     for u in users_db:
         if u["email"].lower() == email:
             u["status"] = "Aprovado"
-            save_users(users_db)  # Salva permanentemente no arquivo JSON
+            save_users(users_db)
             return {"message": "Usuário aprovado com sucesso", "user": u}
             
     raise HTTPException(status_code=404, detail="Usuário não encontrado")
 
 @api_router.patch("/admin/users/update-status")
 def update_user_status(data: dict = None):
+    global users_db
     email = data.get("identifier", "").lower() if data else ""
     new_status = data.get("status", "").lower() if data else ""
     
@@ -115,6 +116,7 @@ def update_user_status(data: dict = None):
                 u["status"] = "Aprovado"
             else:
                 u["status"] = "Pendente"
+            save_users(users_db)
             return {"message": "Status atualizado com sucesso"}
             
     raise HTTPException(status_code=404, detail="Usuário não encontrado")
@@ -130,9 +132,6 @@ def get_statements():
 @api_router.get("/deliveries")
 def get_deliveries():
     return []
-@api_router.get("/deliveries")
-def get_deliveries():
-    return []
 
 @api_router.post("/deliveries")
 def create_delivery(data: dict = None):
@@ -142,8 +141,6 @@ def create_delivery(data: dict = None):
 
 @api_router.post("/auth/login")
 def login(data: dict = None):
-
-
     if not data:
         raise HTTPException(status_code=400, detail="Dados de login inválidos")
         
@@ -167,30 +164,29 @@ def login(data: dict = None):
                 "status": status
             }
         }
-    else:
-      user_record = next((u for u in users_db if u["email"].lower() == email), None)
+        
+    user_record = next((u for u in users_db if u["email"].lower() == email), None)
+    
     if not user_record:
+        role = requested_role or ("store" if "loja" in email or "store" in email else "deliveryman")
         user_record = {
             "name": "Novo Usuário",
             "email": email,
-            "role": requested_role or "deliveryman",
+            "role": role,
             "status": "Pendente"
         }
         users_db.append(user_record)
-    else:
-        # Mantém o status existente ou força se necessário
-        pass
+        save_users(users_db)
 
     role = user_record.get("role", "deliveryman")
     status = user_record.get("status", "Pendente")
 
-    token_falso = f"token_{role}_{email}"
-
     return {
-        "access_token": token_falso,
+        "access_token": f"token_{role}_{email}",
         "token_type": "bearer",
         "role": role,
         "user": {
+            "name": user_record.get("name", "Usuário"),
             "email": email,
             "role": role,
             "status": status
@@ -207,7 +203,6 @@ def register(data: dict = None):
     role = data.get("role", "deliveryman")
     name = data.get("name", "Novo Usuário")
 
-    # Verifica se já existe
     existing = next((u for u in users_db if u["email"].lower() == email), None)
     if existing:
         return {"message": "Usuário já cadastrado", "user": existing}
@@ -216,36 +211,12 @@ def register(data: dict = None):
         "name": name,
         "email": email,
         "role": role,
-        "status": "Pendente"  # Nasce pendente para exigir aprovação do admin
+        "status": "Pendente"
     }
-  
-    save_users(users_db)  # Salva no arquivo JSON
+    
+    users_db.append(new_user)
+    save_users(users_db)
     return {"message": "Cadastro realizado com sucesso...", "user": new_user}
-
-@api_router.post("/auth/login")
-def login(credentials: dict):
-    email = credentials.get("email", "").lower()
-    
-    # Procura o usuário cadastrado no banco de dados da aplicação
-    user_record = next((u for u in users_db if u["email"].lower() == email), None)
-    
-    # Se não encontrar, define como deliveryman por padrão ou store se contiver loja/store no e-mail
-    if user_record:
-        role = user_record.get("role", "deliveryman")
-    else:
-        role = "store" if "loja" in email or "store" in email else "deliveryman"
-        user_record = {"email": email, "role": role, "status": "APROVADO"}
-        users_db.append(user_record)
-        
-    return {
-        "access_token": f"token_{role}_{email}",
-        "token_type": "bearer",
-        "user": {
-            "email": email,
-            "role": role,
-            "status": "APROVADO"
-        }
-    }
 
 @api_router.get("/auth/me")
 def get_me(authorization: str = Header(None)):
@@ -257,22 +228,25 @@ def get_me(authorization: str = Header(None)):
         if len(parts) >= 3:
             email = parts[2]
 
-    # Busca o perfil exato salvo no registro do usuário
     user_record = next((u for u in users_db if u["email"].lower() == email.lower()), None)
     
     if user_record:
         role = user_record.get("role", "deliveryman")
+        status = user_record.get("status", "Pendente")
+        name = user_record.get("name", "Usuário")
     else:
         role = "store" if "loja" in email.lower() or "store" in email.lower() else "deliveryman"
+        status = "Pendente"
+        name = "Usuário"
 
     return {
         "user": {
+            "name": name,
             "email": email,
             "role": role,
-            "status": "APROVADO"
+            "status": status
         }
     }
-
 
 @api_router.post("/auth/logout")
 def logout():
