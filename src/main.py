@@ -30,10 +30,10 @@ users_db = [
         "status": "Aprovado"
     },
     {
-        "name": "Loja Teste Bloqueada",
-        "email": "loja.bloqueada@exemplo.com",
-        "role": "store",
-        "status": "Bloqueado"
+        "name": "Novo Motoboy Teste",
+        "email": "teste1@gmail.com",
+        "role": "deliveryman",
+        "status": "Pendente"
     }
 ]
 
@@ -55,6 +55,7 @@ def get_operations():
 
 @api_router.get("/admin/users")
 def get_admin_users():
+    global users_db
     formatted_users = []
     for u in users_db:
         formatted_users.append({
@@ -172,19 +173,28 @@ def login(data: dict = None):
 
 @api_router.post("/auth/register")
 def register(data: dict = None):
-    email = data.get("email", "").lower() if data else ""
-    role = data.get("role", "deliveryman") if data else "deliveryman"
+    global users_db
+    if not data:
+        raise HTTPException(status_code=400, detail="Dados inválidos")
+
+    email = data.get("email", "").lower()
+    role = data.get("role", "deliveryman")
     name = data.get("name", "Novo Usuário")
-    
-    if not any(u["email"] == email for u in users_db):
-        users_db.append({
-            "name": name,
-            "email": email,
-            "role": role,
-            "status": "Pendente"
-        })
-        
-    return {"message": "Conta criada com sucesso! Aguarde a aprovação do Administrador.", "email": email}
+
+    # Verifica se já existe
+    existing = next((u for u in users_db if u["email"].lower() == email), None)
+    if existing:
+        return {"message": "Usuário já cadastrado", "user": existing}
+
+    new_user = {
+        "name": name,
+        "email": email,
+        "role": role,
+        "status": "Pendente"  # Nasce pendente para exigir aprovação do admin
+    }
+    users_db.append(new_user)
+
+    return {"message": "Cadastro realizado com sucesso. Aguardando aprovação do admin.", "user": new_user}
 
 @api_router.post("/auth/login")
 def login(credentials: dict):
