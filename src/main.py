@@ -66,6 +66,20 @@ def get_admin_users():
         })
     return formatted_users
 
+@api_router.post("/admin/users/approve")
+@api_router.post("/admin/users/{identifier}/approve")
+def approve_user(identifier: str = None, data: dict = None):
+    global users_db
+    email = identifier or (data.get("email") if data else "") or (data.get("identifier") if data else "")
+    email = email.lower()
+    
+    for u in users_db:
+        if u["email"].lower() == email:
+            u["status"] = "Aprovado"
+            return {"message": "Usuário aprovado com sucesso", "user": u}
+            
+    raise HTTPException(status_code=404, detail="Usuário não encontrado")
+
 @api_router.post("/admin/users/{identifier}/approve")
 def approve_user(identifier: str = None, data: dict = None):
     email = identifier or (data.get("identifier") if data else "")
