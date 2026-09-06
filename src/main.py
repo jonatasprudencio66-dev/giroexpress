@@ -1,14 +1,12 @@
 from fastapi import FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.routing import APIRouter
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 import json
 import os
 
 app = FastAPI()
-
-@app.get("/")
-def root():
-    return {"message": "API GiroExpress rodando"}
 
 app.add_middleware(
     CORSMiddleware,
@@ -20,6 +18,8 @@ app.add_middleware(
 )
 
 api_router = APIRouter(prefix="/api")
+
+# Rotas da API existentes continuam aqui...
 
 USERS_FILE = "users.json"
 
@@ -50,6 +50,18 @@ def load_users():
             "status": "Aprovado"
         }
     ]
+
+# Serve arquivos estáticos do frontend se a pasta dist existir
+if os.path.exists("dist"):
+    app.mount("/assets", StaticFiles(directory="dist/assets"), name="assets")
+    
+    @app.get("/{full_path:path}")
+    async def serve_frontend(full_path: str):
+        if full_path.startswith("api"):
+            raise HTTPException(status_code=404, detail="Not Found")
+        if os.path.exists(f"dist/{full_path}"):
+            return FileResponse(f"dist/{full_path}")
+        return FileResponse("dist/index.html")
 
 def save_users(users):
     try:
