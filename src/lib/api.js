@@ -1,6 +1,6 @@
 import axios from "axios";
 
-export const API_BASE = "https://seu-backend-url.com/api"; 
+export const API_BASE = "/api";
 // ou o link do ngrok se estiver testando localmente:
 // export const API_BASE = "https://xxxx.ngrok-free.app/api";
 
