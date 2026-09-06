@@ -51,21 +51,20 @@ def load_users():
         }
     ]
 
-# Serve arquivos estáticos do frontend se a pasta dist existir
-if os.path.exists("dist"):
-    app.mount("/assets", StaticFiles(directory="dist/assets"), name="assets")
-    
- # Serve arquivos estáticos do frontend gerados na pasta build
-if os.path.exists("build"):
-    app.mount("/static", StaticFiles(directory="build/static"), name="static")
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+BUILD_DIR = os.path.abspath(os.path.join(BASE_DIR, "../build"))
+
+if os.path.exists(BUILD_DIR):
+    app.mount("/static", StaticFiles(directory=os.path.join(BUILD_DIR, "static")), name="static")
     
     @app.get("/{full_path:path}")
     async def serve_frontend(full_path: str):
         if full_path.startswith("api"):
             raise HTTPException(status_code=404, detail="Not Found")
-        if os.path.exists(f"build/{full_path}"):
-            return FileResponse(f"build/{full_path}")
-        return FileResponse("build/index.html")
+        target_path = os.path.join(BUILD_DIR, full_path)
+        if os.path.exists(target_path) and os.path.isfile(target_path):
+            return FileResponse(target_path)
+        return FileResponse(os.path.join(BUILD_DIR, "index.html"))
 
 def save_users(users):
     try:
