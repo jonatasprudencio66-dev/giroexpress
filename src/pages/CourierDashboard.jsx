@@ -1,3 +1,4 @@
+
 import React, {
   useCallback,
   useEffect,
@@ -1194,127 +1195,6 @@ export default function CourierDashboard() {
 
   /*
    * ============================================================
-   * AÇÕES DA CORRIDA
-   * ============================================================
-   */
-
-  const act =
-    async (
-      id,
-      action
-    ) => {
-      try {
-        /*
-         * Segurança no frontend:
-         * nunca deixa aceitar mais de 8.
-         */
-        if (
-          action === "accept" &&
-          activeCount >=
-            MAX_ACTIVE_DELIVERIES
-        ) {
-          toast.error(
-            `Você já está com ${MAX_ACTIVE_DELIVERIES} pedidos ativos. Conclua um pedido para aceitar outro.`
-          );
-
-          return;
-        }
-
-        await api.post(
-          `/deliveries/${id}/${action}`
-        );
-
-        toast.success(
-          action === "accept"
-            ? "Corrida aceita!"
-            : action ===
-              "complete"
-            ? "Entrega concluída!"
-            : "Ok"
-        );
-
-        await load();
-      } catch (error) {
-        toast.error(
-          apiError(error)
-        );
-      }
-    };
-
-  /*
-   * ============================================================
-   * GANHOS DO DIA
-   * ============================================================
-   */
-
-  const netToday =
-    useMemo(() => {
-      const today =
-        new Date()
-          .toISOString()
-          .slice(0, 10);
-
-      const currentUserId =
-        user?.id ||
-        user?._id;
-
-      return deliveries
-        .filter((d) => {
-          const statusOk =
-            [
-              "delivered",
-              "completed",
-              "COMPLETED",
-              "DELIVERED",
-            ].includes(
-              d.status
-            );
-
-          const mine =
-            String(
-              d.courier_id
-            ) ===
-            String(
-              currentUserId
-            );
-
-          const dateStr =
-            d.delivered_at ||
-            d.updated_at ||
-            d.created_at ||
-            "";
-
-          const dateOk =
-            dateStr.startsWith(
-              today
-            ) || !dateStr;
-
-          return (
-            statusOk &&
-            mine &&
-            dateOk
-          );
-        })
-        .reduce(
-          (
-            sum,
-            d
-          ) =>
-            sum +
-            (Number(
-              d.net_courier
-            ) ||
-              Number(
-                d.gross_price
-              ) -
-                1 ||
-              7),
-          0
-        );
-    }, [deliveries, user]);
-
-  /*
-   * ============================================================
    * LISTAS
    * ============================================================
    */
@@ -1354,10 +1234,6 @@ export default function CourierDashboard() {
   /*
    * ============================================================
    * CORRIDAS DISPONÍVEIS
-   *
-   * A corrida mais nova fica SEMPRE NO TOPO.
-   * Primeiro usamos created_at.
-   * Caso não exista, usamos updated_at.
    * ============================================================
    */
 
@@ -1393,6 +1269,12 @@ export default function CourierDashboard() {
           )
       : [];
 
+  /*
+   * ============================================================
+   * MINHAS CORRIDAS
+   * ============================================================
+   */
+
   const mine =
     deliveries.filter(
       (d) =>
@@ -1411,6 +1293,12 @@ export default function CourierDashboard() {
         )
     );
 
+  /*
+   * ============================================================
+   * HISTÓRICO
+   * ============================================================
+   */
+
   const history =
     deliveries.filter(
       (d) =>
@@ -1428,6 +1316,123 @@ export default function CourierDashboard() {
           d.status
         )
     );
+
+  /*
+   * ============================================================
+   * GANHOS DO DIA
+   * ============================================================
+   */
+
+  const netToday =
+    useMemo(() => {
+      const today =
+        new Date()
+          .toISOString()
+          .slice(0, 10);
+
+      const currentId =
+        user?.id ||
+        user?._id;
+
+      return deliveries
+        .filter((d) => {
+          const statusOk =
+            [
+              "delivered",
+              "completed",
+              "COMPLETED",
+              "DELIVERED",
+            ].includes(
+              d.status
+            );
+
+          const mine =
+            String(
+              d.courier_id
+            ) ===
+            String(
+              currentId
+            );
+
+          const dateStr =
+            d.delivered_at ||
+            d.updated_at ||
+            d.created_at ||
+            "";
+
+          const dateOk =
+            dateStr.startsWith(
+              today
+            ) || !dateStr;
+
+          return (
+            statusOk &&
+            mine &&
+            dateOk
+          );
+        })
+        .reduce(
+          (
+            sum,
+            d
+          ) =>
+            sum +
+            (Number(
+              d.net_courier
+            ) ||
+              Number(
+                d.gross_price
+              ) -
+                1 ||
+              7),
+          0
+        );
+    }, [deliveries, user]);
+
+  /*
+   * ============================================================
+   * AÇÕES DA CORRIDA
+   * ============================================================
+   */
+
+  const act =
+    async (
+      id,
+      action
+    ) => {
+      try {
+        if (
+          action === "accept" &&
+          activeCount >=
+            MAX_ACTIVE_DELIVERIES
+        ) {
+          toast.error(
+            `Você já está com ${MAX_ACTIVE_DELIVERIES} pedidos ativos. Conclua um pedido para aceitar outro.`
+          );
+
+          return;
+        }
+
+        await api.post(
+          `/deliveries/${id}/${action}`
+        );
+
+        toast.success(
+          action === "accept"
+            ? "Corrida aceita!"
+            : action ===
+              "complete"
+            ? "Entrega concluída!"
+            : "Ok"
+        );
+
+        await load();
+      } catch (error) {
+        toast.error(
+          apiError(error)
+        );
+      }
+    };
 
   /*
    * ============================================================
@@ -1568,281 +1573,305 @@ export default function CourierDashboard() {
         </div>
       )}
 
-      <div
-        className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6"
-        data-testid="courier-dashboard"
-      >
-        <StatCard
-          icon={
-            <DollarSign className="w-5 h-5" />
-          }
-          label="Ganhos Líquidos Hoje"
-          value={formatBRL(
-            netToday
-          )}
-          sub="Taxa admin de R$ 1,00 já descontada"
-          testid="courier-earnings"
-        />
-
-        <StatCard
-          icon={
-            <Package className="w-5 h-5" />
-          }
-          label="Corridas Ativas"
-          value={`${activeCount}/${MAX_ACTIVE_DELIVERIES}`}
-          sub={
-            remainingSlots >
-            0
-              ? `${remainingSlots} vaga${
-                  remainingSlots >
-                  1
-                    ? "s"
-                    : ""
-                } disponível${
-                  remainingSlots >
-                  1
-                    ? "eis"
-                    : ""
-                }`
-              : "Limite atingido — conclua uma entrega"
-          }
-        />
-
-        <StatCard
-          icon={
-            <Bike className="w-5 h-5" />
-          }
-          label="Veículo"
-          value={
-            user?.vehicle ||
-            "—"
-          }
-          sub="Cadastrado"
-        />
-
-        <StatCard
-          icon={
-            <MapPin className="w-5 h-5" />
-          }
-          label="Disponíveis na Região"
-          value={
-            available.length
-          }
-          sub="Prontas para aceitar"
-        />
-      </div>
-
-      <div
-        className={`mb-6 rounded-2xl border p-4 ${
-          hasAvailableSlots
-            ? "border-orange-500/30 bg-orange-500/10"
-            : "border-rose-500/40 bg-rose-500/10"
-        }`}
-        data-testid="courier-capacity"
-      >
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-          <div>
-            <p className="text-sm font-black text-white">
-              Pedidos na sua rota:{" "}
-              {activeCount}/
-              {MAX_ACTIVE_DELIVERIES}
-            </p>
-
-            <p className="text-xs text-slate-400 mt-1">
-              Você pode aceitar pedidos de qualquer loja até completar 8 pedidos ativos.
-            </p>
-          </div>
-
-          <div className="shrink-0 text-xs font-bold px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-slate-300">
-            {hasAvailableSlots
-              ? `${remainingSlots} ${
-                  remainingSlots ===
-                  1
-                    ? "vaga"
-                    : "vagas"
-                } restante${
-                  remainingSlots ===
-                  1
-                    ? ""
-                    : "s"
-                }`
-              : "8/8 — limite atingido"}
-          </div>
-        </div>
-
-        <div className="mt-3 h-2 rounded-full bg-slate-950 overflow-hidden">
-          <div
-            className={`h-full rounded-full transition-all ${
-              hasAvailableSlots
-                ? "bg-orange-500"
-                : "bg-rose-500"
-            }`}
-            style={{
-              width: `${Math.min(
-                100,
-                (activeCount /
-                  MAX_ACTIVE_DELIVERIES) *
-                  100
-              )}%`,
-            }}
-          />
-        </div>
-      </div>
-
       {loading ? (
         <div className="flex justify-center py-12">
           <Loader2 className="w-8 h-8 animate-spin text-orange-500" />
         </div>
       ) : (
-        <div className="space-y-6">
-          <Section
-            title="Corridas Disponíveis"
-            empty="Nenhuma corrida disponível no momento."
-            data={available}
-            badge={
-              flashCount > 0
-                ? flashCount
-                : null
-            }
-            onSeen={() =>
-              setFlashCount(0)
-            }
-          >
-            {(d) => (
-              <DeliveryCard
-                key={d.id}
-                d={d}
-                me={user}
-                online={online}
-                unreadCount={
-                  unreadMessages[
-                    String(
-                      d.id ||
-                        d._id
-                    )
-                  ] || 0
-                }
-                onAccept={() =>
-                  act(
-                    d.id,
-                    "accept"
-                  )
-                }
-                acceptDisabled={
-                  !hasAvailableSlots
-                }
-                onChat={() =>
-                  openChat(d)
-                }
-                onTicket={() => {
-                  setTicketForId(
-                    d.id
-                  );
+        <>
+          {/* ====================================================
+              CORRIDAS DISPONÍVEIS — PRIMEIRO
+          ==================================================== */}
 
-                  setShowTicket(
-                    true
-                  );
+          <div className="mb-6">
+            <Section
+              title="Corridas Disponíveis"
+              empty="Nenhuma corrida disponível no momento."
+              data={available}
+              badge={
+                flashCount > 0
+                  ? flashCount
+                  : null
+              }
+              onSeen={() =>
+                setFlashCount(0)
+              }
+            >
+              {(d) => (
+                <DeliveryCard
+                  key={d.id}
+                  d={d}
+                  me={user}
+                  online={online}
+                  unreadCount={
+                    unreadMessages[
+                      String(
+                        d.id ||
+                          d._id
+                      )
+                    ] || 0
+                  }
+                  onAccept={() =>
+                    act(
+                      d.id,
+                      "accept"
+                    )
+                  }
+                  acceptDisabled={
+                    !hasAvailableSlots
+                  }
+                  onChat={() =>
+                    openChat(d)
+                  }
+                  onTicket={() => {
+                    setTicketForId(
+                      d.id
+                    );
+
+                    setShowTicket(
+                      true
+                    );
+                  }}
+                />
+              )}
+            </Section>
+          </div>
+
+          {/* ====================================================
+              GANHOS / RESUMO
+          ==================================================== */}
+
+          <div
+            className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6"
+            data-testid="courier-dashboard"
+          >
+            <StatCard
+              icon={
+                <DollarSign className="w-5 h-5" />
+              }
+              label="Ganhos Líquidos Hoje"
+              value={formatBRL(
+                netToday
+              )}
+              sub="Taxa admin de R$ 1,00 já descontada"
+              testid="courier-earnings"
+            />
+
+            <StatCard
+              icon={
+                <Package className="w-5 h-5" />
+              }
+              label="Corridas Ativas"
+              value={`${activeCount}/${MAX_ACTIVE_DELIVERIES}`}
+              sub={
+                remainingSlots >
+                0
+                  ? `${remainingSlots} vaga${
+                      remainingSlots >
+                      1
+                        ? "s"
+                        : ""
+                    } disponível${
+                      remainingSlots >
+                      1
+                        ? "eis"
+                        : ""
+                    }`
+                  : "Limite atingido — conclua uma entrega"
+              }
+            />
+
+            <StatCard
+              icon={
+                <Bike className="w-5 h-5" />
+              }
+              label="Veículo"
+              value={
+                user?.vehicle ||
+                "—"
+              }
+              sub="Cadastrado"
+            />
+
+            <StatCard
+              icon={
+                <MapPin className="w-5 h-5" />
+              }
+              label="Disponíveis na Região"
+              value={
+                available.length
+              }
+              sub="Prontas para aceitar"
+            />
+          </div>
+
+          {/* ====================================================
+              CAPACIDADE
+          ==================================================== */}
+
+          <div
+            className={`mb-6 rounded-2xl border p-4 ${
+              hasAvailableSlots
+                ? "border-orange-500/30 bg-orange-500/10"
+                : "border-rose-500/40 bg-rose-500/10"
+            }`}
+            data-testid="courier-capacity"
+          >
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+              <div>
+                <p className="text-sm font-black text-white">
+                  Pedidos na sua rota:{" "}
+                  {activeCount}/
+                  {MAX_ACTIVE_DELIVERIES}
+                </p>
+
+                <p className="text-xs text-slate-400 mt-1">
+                  Você pode aceitar pedidos de qualquer loja até completar 8 pedidos ativos.
+                </p>
+              </div>
+
+              <div className="shrink-0 text-xs font-bold px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-slate-300">
+                {hasAvailableSlots
+                  ? `${remainingSlots} ${
+                      remainingSlots ===
+                      1
+                        ? "vaga"
+                        : "vagas"
+                    } restante${
+                      remainingSlots ===
+                      1
+                        ? ""
+                        : "s"
+                    }`
+                  : "8/8 — limite atingido"}
+              </div>
+            </div>
+
+            <div className="mt-3 h-2 rounded-full bg-slate-950 overflow-hidden">
+              <div
+                className={`h-full rounded-full transition-all ${
+                  hasAvailableSlots
+                    ? "bg-orange-500"
+                    : "bg-rose-500"
+                }`}
+                style={{
+                  width: `${Math.min(
+                    100,
+                    (activeCount /
+                      MAX_ACTIVE_DELIVERIES) *
+                      100
+                  )}%`,
                 }}
               />
-            )}
-          </Section>
+            </div>
+          </div>
 
-          <Section
-            title="Minhas Corridas em Andamento"
-            empty="Aceite uma corrida acima para começar."
-            data={mine}
-          >
-            {(d) => (
-              <DeliveryCard
-                key={d.id}
-                d={d}
-                me={user}
-                online={online}
-                unreadCount={
-                  unreadMessages[
-                    String(
-                      d.id ||
-                        d._id
+          {/* ====================================================
+              MINHAS CORRIDAS
+          ==================================================== */}
+
+          <div className="space-y-6">
+            <Section
+              title="Minhas Corridas em Andamento"
+              empty="Aceite uma corrida acima para começar."
+              data={mine}
+            >
+              {(d) => (
+                <DeliveryCard
+                  key={d.id}
+                  d={d}
+                  me={user}
+                  online={online}
+                  unreadCount={
+                    unreadMessages[
+                      String(
+                        d.id ||
+                          d._id
+                      )
+                    ] || 0
+                  }
+                  onStart={
+                    d.status ===
+                    "accepted"
+                      ? () =>
+                          act(
+                            d.id,
+                            "start"
+                          )
+                      : null
+                  }
+                  onComplete={
+                    [
+                      "accepted",
+                      "in_transit",
+                      "picked_up",
+                      "in_progress",
+                    ].includes(
+                      d.status
                     )
-                  ] || 0
-                }
-                onStart={
-                  d.status ===
-                  "accepted"
-                    ? () =>
-                        act(
-                          d.id,
-                          "start"
-                        )
-                    : null
-                }
-                onComplete={
-                  [
-                    "accepted",
-                    "in_transit",
-                    "picked_up",
-                    "in_progress",
-                  ].includes(
-                    d.status
-                  )
-                    ? () =>
-                        act(
-                          d.id,
-                          "complete"
-                        )
-                    : null
-                }
-                onChat={() =>
-                  openChat(d)
-                }
-                onTicket={() => {
-                  setTicketForId(
-                    d.id
-                  );
+                      ? () =>
+                          act(
+                            d.id,
+                            "complete"
+                          )
+                      : null
+                  }
+                  onChat={() =>
+                    openChat(d)
+                  }
+                  onTicket={() => {
+                    setTicketForId(
+                      d.id
+                    );
 
-                  setShowTicket(
-                    true
-                  );
-                }}
-              />
-            )}
-          </Section>
+                    setShowTicket(
+                      true
+                    );
+                  }}
+                />
+              )}
+            </Section>
 
-          <Section
-            title="Histórico"
-            empty="Sem histórico ainda."
-            data={history}
-          >
-            {(d) => (
-              <DeliveryCard
-                key={d.id}
-                d={d}
-                me={user}
-                online={online}
-                unreadCount={
-                  unreadMessages[
-                    String(
-                      d.id ||
-                        d._id
-                    )
-                  ] || 0
-                }
-                onChat={() =>
-                  openChat(d)
-                }
-                onTicket={() => {
-                  setTicketForId(
-                    d.id
-                  );
+            {/* ==================================================
+                HISTÓRICO
+            ================================================== */}
 
-                  setShowTicket(
-                    true
-                  );
-                }}
-              />
-            )}
-          </Section>
-        </div>
+            <Section
+              title="Histórico"
+              empty="Sem histórico ainda."
+              data={history}
+            >
+              {(d) => (
+                <DeliveryCard
+                  key={d.id}
+                  d={d}
+                  me={user}
+                  online={online}
+                  unreadCount={
+                    unreadMessages[
+                      String(
+                        d.id ||
+                          d._id
+                      )
+                    ] || 0
+                  }
+                  onChat={() =>
+                    openChat(d)
+                  }
+                  onTicket={() => {
+                    setTicketForId(
+                      d.id
+                    );
+
+                    setShowTicket(
+                      true
+                    );
+                  }}
+                />
+              )}
+            </Section>
+          </div>
+        </>
       )}
 
       {/* ======================================================
@@ -2608,3 +2637,4 @@ function DeliveryCard({
     </div>
   );
 }
+
