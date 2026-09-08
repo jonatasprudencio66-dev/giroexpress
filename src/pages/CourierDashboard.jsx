@@ -1,4 +1,3 @@
-
 import React, {
   useCallback,
   useEffect,
@@ -44,11 +43,9 @@ const ACTIVE_DELIVERY_STATUSES = [
   "in_progress",
 ];
 
-/*
- * ============================================================
+/* ============================================================
  * ÁUDIO DE NOTIFICAÇÃO
- * ============================================================
- */
+ * ============================================================ */
 
 let notificationAudioContext = null;
 
@@ -59,16 +56,11 @@ function getAudioContext() {
       window.webkitAudioContext;
 
     if (!AudioContext) {
-      console.warn(
-        "[GiroExpress] Web Audio API não disponível."
-      );
-
       return null;
     }
 
     if (!notificationAudioContext) {
-      notificationAudioContext =
-        new AudioContext();
+      notificationAudioContext = new AudioContext();
     }
 
     return notificationAudioContext;
@@ -109,14 +101,10 @@ function playBeepSound(ctx) {
   try {
     const now = ctx.currentTime;
 
-    const oscillator1 =
-      ctx.createOscillator();
-
-    const gain1 =
-      ctx.createGain();
+    const oscillator1 = ctx.createOscillator();
+    const gain1 = ctx.createGain();
 
     oscillator1.type = "sine";
-
     oscillator1.frequency.setValueAtTime(
       880,
       now
@@ -214,20 +202,16 @@ async function playBeep() {
   }
 }
 
-/*
- * ============================================================
+/* ============================================================
  * NOTIFICAÇÃO DO NAVEGADOR
- * ============================================================
- */
+ * ============================================================ */
 
 function showBrowserNotification(
   senderName,
   messageText
 ) {
   try {
-    if (
-      !("Notification" in window)
-    ) {
+    if (!("Notification" in window)) {
       return;
     }
 
@@ -268,15 +252,12 @@ function showBrowserNotification(
   }
 }
 
-/*
- * ============================================================
+/* ============================================================
  * DASHBOARD DO MOTOBOY
- * ============================================================
- */
+ * ============================================================ */
 
 export default function CourierDashboard() {
-  const { user, refresh } =
-    useAuth();
+  const { user, refresh } = useAuth();
 
   const [deliveries, setDeliveries] =
     useState([]);
@@ -285,9 +266,7 @@ export default function CourierDashboard() {
     useState(true);
 
   const [online, setOnline] =
-    useState(
-      user?.online ?? false
-    );
+    useState(user?.online ?? false);
 
   const [chatDelivery, setChatDelivery] =
     useState(null);
@@ -307,11 +286,9 @@ export default function CourierDashboard() {
   const [flashCount, setFlashCount] =
     useState(0);
 
-  /*
-   * ============================================================
+  /* ============================================================
    * CONTA / PIX
-   * ============================================================
-   */
+   * ============================================================ */
 
   const [showAccount, setShowAccount] =
     useState(false);
@@ -334,17 +311,18 @@ export default function CourierDashboard() {
       pix_key: "",
     });
 
-  /*
-   * ============================================================
+  /* ============================================================
    * REFS
-   * ============================================================
-   */
+   * ============================================================ */
 
   const seenPending =
     useRef(new Set());
 
   const firstLoad =
     useRef(true);
+
+  const mountedRef =
+    useRef(false);
 
   const onlineRef =
     useRef(online);
@@ -364,8 +342,32 @@ export default function CourierDashboard() {
   const websocketGenerationRef =
     useRef(0);
 
+  /*
+   * Impede duas requisições simultâneas.
+   */
+  const loadingDeliveriesRef =
+    useRef(false);
+
+  /*
+   * Identifica a requisição mais recente.
+   */
+  const loadGenerationRef =
+    useRef(0);
+
   const userId =
     user?.id || user?._id;
+
+  /* ============================================================
+   * CONTROLE DO COMPONENTE
+   * ============================================================ */
+
+  useEffect(() => {
+    mountedRef.current = true;
+
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
 
   useEffect(() => {
     onlineRef.current =
@@ -382,11 +384,9 @@ export default function CourierDashboard() {
       chatDelivery;
   }, [chatDelivery]);
 
-  /*
-   * ============================================================
+  /* ============================================================
    * ÁUDIO
-   * ============================================================
-   */
+   * ============================================================ */
 
   useEffect(() => {
     let unlocked = false;
@@ -458,11 +458,9 @@ export default function CourierDashboard() {
     };
   }, []);
 
-  /*
-   * ============================================================
+  /* ============================================================
    * WEBSOCKET
-   * ============================================================
-   */
+   * ============================================================ */
 
   useEffect(() => {
     if (!userId) {
@@ -527,9 +525,11 @@ export default function CourierDashboard() {
         if (
           websocketRef.current &&
           (
-            websocketRef.current.readyState ===
+            websocketRef.current
+              .readyState ===
               WebSocket.OPEN ||
-            websocketRef.current.readyState ===
+            websocketRef.current
+              .readyState ===
               WebSocket.CONNECTING
           )
         ) {
@@ -561,8 +561,6 @@ export default function CourierDashboard() {
               } catch {
                 // Ignora
               }
-
-              return;
             }
           };
 
@@ -595,12 +593,8 @@ export default function CourierDashboard() {
 
               if (
                 senderId &&
-                String(
-                  senderId
-                ) ===
-                  String(
-                    userId
-                  )
+                String(senderId) ===
+                  String(userId)
               ) {
                 return;
               }
@@ -737,9 +731,7 @@ export default function CourierDashboard() {
       const socket =
         websocketRef.current;
 
-      if (
-        socket === ws
-      ) {
+      if (socket === ws) {
         websocketRef.current =
           null;
       }
@@ -766,175 +758,302 @@ export default function CourierDashboard() {
     };
   }, [userId]);
 
-  /*
-   * ============================================================
+  /* ============================================================
    * CARREGAR CORRIDAS
-   * ============================================================
-   */
+   *
+   * CORREÇÃO DO PISCA-PISCA:
+   * - somente primeira carga usa loading visual;
+   * - atualizações seguintes são silenciosas;
+   * - evita requisições simultâneas;
+   * - evita setState se nada mudou;
+   * - ordena a assinatura para ignorar mudança de ordem.
+   * ============================================================ */
 
-  const load =
-    useCallback(
-      async () => {
-        try {
-          const { data } =
-            await api.get(
-              "/deliveries"
-            );
+  const load = useCallback(
+    async () => {
+      if (!userId) {
+        return;
+      }
 
-          const nextDeliveries =
-            Array.isArray(data)
-              ? data
-              : [];
+      if (
+        loadingDeliveriesRef.current
+      ) {
+        return;
+      }
 
-          const pending =
-            nextDeliveries.filter(
+      loadingDeliveriesRef.current =
+        true;
+
+      const requestGeneration =
+        ++loadGenerationRef.current;
+
+      try {
+        const { data } =
+          await api.get(
+            "/deliveries"
+          );
+
+        if (
+          !mountedRef.current
+        ) {
+          return;
+        }
+
+        if (
+          requestGeneration !==
+          loadGenerationRef.current
+        ) {
+          return;
+        }
+
+        const nextDeliveries =
+          Array.isArray(data)
+            ? data
+            : [];
+
+        const pending =
+          nextDeliveries.filter(
+            (d) =>
+              d.status ===
+                "pending" &&
+              !d.courier_id
+          );
+
+        /*
+         * Detecta novas corridas somente
+         * depois da primeira carga.
+         */
+        if (
+          !firstLoad.current &&
+          onlineRef.current &&
+          notifyOnRef.current
+        ) {
+          const fresh =
+            pending.filter(
               (d) =>
-                d.status ===
-                  "pending" &&
-                !d.courier_id
+                !seenPending.current.has(
+                  d.id
+                )
             );
 
-          if (
-            !firstLoad.current &&
-            onlineRef.current &&
-            notifyOnRef.current
-          ) {
-            const fresh =
-              pending.filter(
-                (d) =>
-                  !seenPending.current.has(
-                    d.id
+          if (fresh.length) {
+            playBeep();
+
+            setFlashCount(
+              (count) =>
+                count +
+                fresh.length
+            );
+
+            fresh.forEach((d) => {
+              const orderCode =
+                String(
+                  d.code ||
+                    "PEDIDO"
+                )
+                  .replace(
+                    /^#+/,
+                    ""
                   )
-              );
+                  .trim();
 
-            if (fresh.length) {
-              playBeep();
+              const storeName =
+                String(
+                  d.store_name ||
+                    "Loja"
+                )
+                  .replace(
+                    /^#+/,
+                    ""
+                  )
+                  .trim();
 
-              setFlashCount(
-                (count) =>
-                  count +
-                  fresh.length
-              );
-
-              fresh.forEach(
-                (d) => {
-                  const orderCode =
-                    String(
-                      d.code ||
-                        "PEDIDO"
-                    )
-                      .replace(
-                        /^#+/,
-                        ""
-                      )
-                      .trim();
-
-                  const storeName =
-                    String(
-                      d.store_name ||
-                        "Loja"
-                    )
-                      .replace(
-                        /^#+/,
-                        ""
-                      )
-                      .trim();
-
-                  toast.info(
-                    `🚚 Nova corrida! ${orderCode} • ${storeName} • ${formatBRL(
-                      d.gross_price
-                    )}`,
-                    {
-                      duration: 8000,
-                    }
-                  );
+              toast.info(
+                `🚚 Nova corrida! ${orderCode} • ${storeName} • ${formatBRL(
+                  d.gross_price
+                )}`,
+                {
+                  duration: 8000,
                 }
               );
-            }
+            });
           }
+        }
 
-          seenPending.current =
-            new Set(
-              pending.map(
-                (d) => d.id
+        seenPending.current =
+          new Set(
+            pending.map(
+              (d) => d.id
+            )
+          );
+
+        firstLoad.current =
+          false;
+
+        /*
+         * Ordenação estável.
+         *
+         * Se a API retornar os mesmos pedidos
+         * em ordem diferente, não atualizamos o
+         * estado e não causamos render desnecessário.
+         */
+        const signatureSource =
+          [...nextDeliveries].sort(
+            (a, b) =>
+              String(
+                a.id ||
+                  a._id ||
+                  ""
+              ).localeCompare(
+                String(
+                  b.id ||
+                    b._id ||
+                    ""
+                )
               )
-            );
+          );
 
-          firstLoad.current =
-            false;
+        const signature =
+          signatureSource.map(
+            (d) => ({
+              id:
+                d.id ||
+                d._id,
 
-          const signature =
-            JSON.stringify(
-              nextDeliveries.map(
-                (d) => ({
-                  id: d.id,
-                  status:
-                    d.status,
-                  courier_id:
-                    d.courier_id,
-                  delivered_at:
-                    d.delivered_at,
-                  updated_at:
-                    d.updated_at,
-                  created_at:
-                    d.created_at,
-                  net_courier:
-                    d.net_courier,
-                  gross_price:
-                    d.gross_price,
-                  distance_km:
-                    d.distance_km,
-                  estimated_min:
-                    d.estimated_min,
-                })
-              )
-            );
+              status:
+                d.status,
 
-          if (
-            signature !==
-            lastDeliverySignature.current
-          ) {
-            lastDeliverySignature.current =
-              signature;
+              courier_id:
+                d.courier_id,
 
-            setDeliveries(
-              nextDeliveries
-            );
-          }
-        } catch (error) {
+              delivered_at:
+                d.delivered_at,
+
+              updated_at:
+                d.updated_at,
+
+              created_at:
+                d.created_at,
+
+              net_courier:
+                d.net_courier,
+
+              gross_price:
+                d.gross_price,
+
+              distance_km:
+                d.distance_km,
+
+              estimated_min:
+                d.estimated_min,
+
+              pickup_address:
+                d.pickup_address,
+
+              dropoff_address:
+                d.dropoff_address,
+
+              store_name:
+                d.store_name,
+
+              client_name:
+                d.client_name,
+            })
+          );
+
+        const nextSignature =
+          JSON.stringify(
+            signature
+          );
+
+        /*
+         * Só atualiza a tela quando os dados
+         * realmente mudaram.
+         */
+        if (
+          nextSignature !==
+          lastDeliverySignature.current
+        ) {
+          lastDeliverySignature.current =
+            nextSignature;
+
+          setDeliveries(
+            nextDeliveries
+          );
+        }
+      } catch (error) {
+        /*
+         * Toast somente na primeira carga.
+         * Durante o polling, erro não fica
+         * piscando nem incomodando o usuário.
+         */
+        if (
+          firstLoad.current &&
+          mountedRef.current
+        ) {
           toast.error(
             apiError(error)
           );
-        } finally {
+        }
+      } finally {
+        loadingDeliveriesRef.current =
+          false;
+
+        /*
+         * Nunca ativa loading novamente
+         * durante o polling.
+         */
+        if (
+          mountedRef.current
+        ) {
           setLoading(false);
         }
-      },
-      []
-    );
+      }
+    },
+    [userId]
+  );
+
+  /* ============================================================
+   * POLLING
+   * ============================================================ */
 
   useEffect(() => {
+    if (!userId) {
+      return;
+    }
+
+    /*
+     * Primeira carga.
+     */
     load();
 
+    /*
+     * Atualização silenciosa a cada 8 segundos.
+     *
+     * O conteúdo atual continua na tela.
+     */
     const timer =
-      setInterval(
-        load,
-        6000
-      );
+      setInterval(() => {
+        load();
+      }, 8000);
 
-    return () =>
+    return () => {
       clearInterval(timer);
-  }, [load]);
 
-  /*
-   * ============================================================
+      loadGenerationRef.current++;
+
+      loadingDeliveriesRef.current =
+        false;
+    };
+  }, [load, userId]);
+
+  /* ============================================================
    * ONLINE / OFFLINE
-   * ============================================================
-   */
+   * ============================================================ */
 
   const toggleOnline =
     async () => {
-      const next =
-        !online;
+      const next = !online;
 
       if (!next) {
         try {
@@ -945,7 +1064,11 @@ export default function CourierDashboard() {
             }
           );
 
-          setOnline(false);
+          if (
+            mountedRef.current
+          ) {
+            setOnline(false);
+          }
 
           await refresh();
 
@@ -968,8 +1091,7 @@ export default function CourierDashboard() {
 
       const isApproved =
         user?.approved === true ||
-        user?.is_approved ===
-          true ||
+        user?.is_approved === true ||
         userStatus ===
           "active" ||
         userStatus ===
@@ -991,7 +1113,11 @@ export default function CourierDashboard() {
           }
         );
 
-        setOnline(true);
+        if (
+          mountedRef.current
+        ) {
+          setOnline(true);
+        }
 
         await refresh();
 
@@ -1005,11 +1131,9 @@ export default function CourierDashboard() {
       }
     };
 
-  /*
-   * ============================================================
+  /* ============================================================
    * CONTA / PIX
-   * ============================================================
-   */
+   * ============================================================ */
 
   const loadAccount =
     useCallback(
@@ -1027,41 +1151,56 @@ export default function CourierDashboard() {
           const account =
             data?.account || {};
 
-          setAccountForm({
-            holder_name:
-              account.holder_name ||
-              user?.name ||
-              "",
-            document:
-              account.document ||
-              "",
-            bank:
-              account.bank ||
-              "",
-            agency:
-              account.agency ||
-              "",
-            account:
-              account.account ||
-              "",
-            account_type:
-              account.account_type ||
-              "corrente",
-            pix_key_type:
-              account.pix_key_type ||
-              "cpf",
-            pix_key:
-              account.pix_key ||
-              "",
-          });
+          if (
+            mountedRef.current
+          ) {
+            setAccountForm({
+              holder_name:
+                account.holder_name ||
+                user?.name ||
+                "",
+
+              document:
+                account.document ||
+                "",
+
+              bank:
+                account.bank ||
+                "",
+
+              agency:
+                account.agency ||
+                "",
+
+              account:
+                account.account ||
+                "",
+
+              account_type:
+                account.account_type ||
+                "corrente",
+
+              pix_key_type:
+                account.pix_key_type ||
+                "cpf",
+
+              pix_key:
+                account.pix_key ||
+                "",
+            });
+          }
         } catch (error) {
           toast.error(
             apiError(error)
           );
         } finally {
-          setAccountLoading(
-            false
-          );
+          if (
+            mountedRef.current
+          ) {
+            setAccountLoading(
+              false
+            );
+          }
         }
       },
       [user]
@@ -1074,7 +1213,10 @@ export default function CourierDashboard() {
     };
 
   const updateAccountField =
-    (field, value) => {
+    (
+      field,
+      value
+    ) => {
       setAccountForm(
         (previous) => ({
           ...previous,
@@ -1093,6 +1235,7 @@ export default function CourierDashboard() {
         toast.error(
           "Informe o titular da conta."
         );
+
         return;
       }
 
@@ -1102,6 +1245,7 @@ export default function CourierDashboard() {
         toast.error(
           "Informe o banco."
         );
+
         return;
       }
 
@@ -1111,6 +1255,7 @@ export default function CourierDashboard() {
         toast.error(
           "Informe a chave PIX."
         );
+
         return;
       }
 
@@ -1123,16 +1268,22 @@ export default function CourierDashboard() {
           "/me/account",
           {
             ...accountForm,
+
             holder_name:
               accountForm.holder_name.trim(),
+
             document:
               accountForm.document.trim(),
+
             bank:
               accountForm.bank.trim(),
+
             agency:
               accountForm.agency.trim(),
+
             account:
               accountForm.account.trim(),
+
             pix_key:
               accountForm.pix_key.trim(),
           }
@@ -1156,48 +1307,43 @@ export default function CourierDashboard() {
       }
     };
 
-  /*
-   * ============================================================
+  /* ============================================================
    * CHAT
-   * ============================================================
-   */
+   * ============================================================ */
 
-  const openChat = (
-    delivery
-  ) => {
-    const deliveryId =
-      delivery?.id ||
-      delivery?._id;
+  const openChat =
+    (delivery) => {
+      const deliveryId =
+        delivery?.id ||
+        delivery?._id;
 
-    if (deliveryId) {
-      const id =
-        String(
-          deliveryId
+      if (deliveryId) {
+        const id =
+          String(
+            deliveryId
+          );
+
+        setUnreadMessages(
+          (previous) => {
+            const updated = {
+              ...previous,
+            };
+
+            delete updated[id];
+
+            return updated;
+          }
         );
+      }
 
-      setUnreadMessages(
-        (previous) => {
-          const updated = {
-            ...previous,
-          };
-
-          delete updated[id];
-
-          return updated;
-        }
+      setChatDelivery(
+        delivery
       );
-    }
+    };
 
-    setChatDelivery(
-      delivery
-    );
-  };
-
-  /*
-   * ============================================================
+  /* ============================================================
    * LISTAS
-   * ============================================================
-   */
+   * ============================================================ */
 
   const currentUserId =
     user?.id ||
@@ -1231,104 +1377,123 @@ export default function CourierDashboard() {
     activeCount <
     MAX_ACTIVE_DELIVERIES;
 
-  /*
-   * ============================================================
+  /* ============================================================
    * CORRIDAS DISPONÍVEIS
-   * ============================================================
-   */
+   * ============================================================ */
 
   const available =
-    hasAvailableSlots
-      ? [...deliveries]
-          .filter(
-            (d) =>
-              d.status ===
-                "pending" &&
-              !d.courier_id
-          )
-          .sort(
-            (a, b) => {
-              const dateA =
-                new Date(
-                  a.created_at ||
-                    a.updated_at ||
-                    0
-                ).getTime();
+    useMemo(() => {
+      if (
+        !hasAvailableSlots
+      ) {
+        return [];
+      }
 
-              const dateB =
-                new Date(
-                  b.created_at ||
-                    b.updated_at ||
-                    0
-                ).getTime();
+      return [...deliveries]
+        .filter(
+          (d) =>
+            d.status ===
+              "pending" &&
+            !d.courier_id
+        )
+        .sort(
+          (a, b) => {
+            const dateA =
+              new Date(
+                a.created_at ||
+                  a.updated_at ||
+                  0
+              ).getTime();
 
-              return (
-                dateB - dateA
-              );
-            }
-          )
-      : [];
+            const dateB =
+              new Date(
+                b.created_at ||
+                  b.updated_at ||
+                  0
+              ).getTime();
 
-  /*
-   * ============================================================
+            return (
+              dateB -
+              dateA
+            );
+          }
+        );
+    }, [
+      deliveries,
+      hasAvailableSlots,
+    ]);
+
+  /* ============================================================
    * MINHAS CORRIDAS
-   * ============================================================
-   */
+   * ============================================================ */
 
   const mine =
-    deliveries.filter(
-      (d) =>
-        String(
-          d.courier_id
-        ) ===
-          String(
-            currentUserId
-          ) &&
-        ![
-          "delivered",
-          "completed",
-          "cancelled",
-        ].includes(
-          d.status
-        )
+    useMemo(
+      () =>
+        deliveries.filter(
+          (d) =>
+            String(
+              d.courier_id
+            ) ===
+              String(
+                currentUserId
+              ) &&
+            ![
+              "delivered",
+              "completed",
+              "cancelled",
+            ].includes(
+              d.status
+            )
+        ),
+      [
+        deliveries,
+        currentUserId,
+      ]
     );
 
-  /*
-   * ============================================================
+  /* ============================================================
    * HISTÓRICO
-   * ============================================================
-   */
+   * ============================================================ */
 
   const history =
-    deliveries.filter(
-      (d) =>
-        String(
-          d.courier_id
-        ) ===
-          String(
-            currentUserId
-          ) &&
-        [
-          "delivered",
-          "completed",
-          "cancelled",
-        ].includes(
-          d.status
-        )
+    useMemo(
+      () =>
+        deliveries.filter(
+          (d) =>
+            String(
+              d.courier_id
+            ) ===
+              String(
+                currentUserId
+              ) &&
+            [
+              "delivered",
+              "completed",
+              "cancelled",
+            ].includes(
+              d.status
+            )
+        ),
+      [
+        deliveries,
+        currentUserId,
+      ]
     );
 
-  /*
-   * ============================================================
+  /* ============================================================
    * GANHOS DO DIA
-   * ============================================================
-   */
+   * ============================================================ */
 
   const netToday =
     useMemo(() => {
       const today =
         new Date()
           .toISOString()
-          .slice(0, 10);
+          .slice(
+            0,
+            10
+          );
 
       const currentId =
         user?.id ||
@@ -1363,7 +1528,8 @@ export default function CourierDashboard() {
           const dateOk =
             dateStr.startsWith(
               today
-            ) || !dateStr;
+            ) ||
+            !dateStr;
 
           return (
             statusOk &&
@@ -1372,10 +1538,7 @@ export default function CourierDashboard() {
           );
         })
         .reduce(
-          (
-            sum,
-            d
-          ) =>
+          (sum, d) =>
             sum +
             (Number(
               d.net_courier
@@ -1387,13 +1550,14 @@ export default function CourierDashboard() {
               7),
           0
         );
-    }, [deliveries, user]);
+    }, [
+      deliveries,
+      user,
+    ]);
 
-  /*
-   * ============================================================
+  /* ============================================================
    * AÇÕES DA CORRIDA
-   * ============================================================
-   */
+   * ============================================================ */
 
   const act =
     async (
@@ -1402,7 +1566,8 @@ export default function CourierDashboard() {
     ) => {
       try {
         if (
-          action === "accept" &&
+          action ===
+            "accept" &&
           activeCount >=
             MAX_ACTIVE_DELIVERIES
         ) {
@@ -1418,10 +1583,11 @@ export default function CourierDashboard() {
         );
 
         toast.success(
-          action === "accept"
+          action ===
+            "accept"
             ? "Corrida aceita!"
             : action ===
-              "complete"
+                "complete"
             ? "Entrega concluída!"
             : "Ok"
         );
@@ -1434,23 +1600,18 @@ export default function CourierDashboard() {
       }
     };
 
-  /*
-   * ============================================================
+  /* ============================================================
    * RENDER
-   * ============================================================
-   */
+   * ============================================================ */
 
   return (
     <Layout
       subtitle="Painel do Motoboy"
       right={
         <div className="flex items-center space-x-2">
-          {/* CONTA / PIX */}
           <button
             type="button"
-            onClick={
-              openAccount
-            }
+            onClick={openAccount}
             className="flex items-center gap-2 px-3 py-2 rounded-xl border border-emerald-500/30 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 transition"
             title="Conta e PIX"
           >
@@ -1461,7 +1622,6 @@ export default function CourierDashboard() {
             </span>
           </button>
 
-          {/* NOTIFICAÇÕES */}
           <button
             data-testid="toggle-notify-btn"
             onClick={async () => {
@@ -1520,12 +1680,11 @@ export default function CourierDashboard() {
             )}
           </button>
 
-          {/* ONLINE */}
           <div className="flex items-center bg-slate-950 px-4 py-2 rounded-2xl border border-slate-800 space-x-3">
             <div
               className={`w-3 h-3 rounded-full ${
                 online
-                  ? "bg-emerald-500 animate-pulse"
+                  ? "bg-emerald-500"
                   : "bg-slate-600"
               }`}
             />
@@ -1559,13 +1718,11 @@ export default function CourierDashboard() {
         "pending" && (
         <div className="bg-amber-500/10 border border-amber-500/40 text-amber-300 p-4 rounded-2xl mb-6">
           <p className="font-bold">
-            Conta pendente de
-            aprovação
+            Conta pendente de aprovação
           </p>
 
           <p className="text-sm">
-            Aguarde o
-            administrador
+            Aguarde o administrador
             aprovar seu cadastro
             para ficar Online e
             aceitar corridas.
@@ -1579,10 +1736,6 @@ export default function CourierDashboard() {
         </div>
       ) : (
         <>
-          {/* ====================================================
-              CORRIDAS DISPONÍVEIS — PRIMEIRO
-          ==================================================== */}
-
           <div className="mb-6">
             <Section
               title="Corridas Disponíveis"
@@ -1594,12 +1747,17 @@ export default function CourierDashboard() {
                   : null
               }
               onSeen={() =>
-                setFlashCount(0)
+                setFlashCount(
+                  0
+                )
               }
             >
               {(d) => (
                 <DeliveryCard
-                  key={d.id}
+                  key={
+                    d.id ||
+                    d._id
+                  }
                   d={d}
                   me={user}
                   online={online}
@@ -1613,7 +1771,8 @@ export default function CourierDashboard() {
                   }
                   onAccept={() =>
                     act(
-                      d.id,
+                      d.id ||
+                        d._id,
                       "accept"
                     )
                   }
@@ -1625,7 +1784,8 @@ export default function CourierDashboard() {
                   }
                   onTicket={() => {
                     setTicketForId(
-                      d.id
+                      d.id ||
+                        d._id
                     );
 
                     setShowTicket(
@@ -1636,10 +1796,6 @@ export default function CourierDashboard() {
               )}
             </Section>
           </div>
-
-          {/* ====================================================
-              GANHOS / RESUMO
-          ==================================================== */}
 
           <div
             className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6"
@@ -1705,10 +1861,6 @@ export default function CourierDashboard() {
             />
           </div>
 
-          {/* ====================================================
-              CAPACIDADE
-          ==================================================== */}
-
           <div
             className={`mb-6 rounded-2xl border p-4 ${
               hasAvailableSlots
@@ -1720,13 +1872,20 @@ export default function CourierDashboard() {
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
               <div>
                 <p className="text-sm font-black text-white">
-                  Pedidos na sua rota:{" "}
+                  Pedidos na sua
+                  rota:{" "}
                   {activeCount}/
-                  {MAX_ACTIVE_DELIVERIES}
+                  {
+                    MAX_ACTIVE_DELIVERIES
+                  }
                 </p>
 
                 <p className="text-xs text-slate-400 mt-1">
-                  Você pode aceitar pedidos de qualquer loja até completar 8 pedidos ativos.
+                  Você pode aceitar
+                  pedidos de
+                  qualquer loja até
+                  completar 8
+                  pedidos ativos.
                 </p>
               </div>
 
@@ -1766,10 +1925,6 @@ export default function CourierDashboard() {
             </div>
           </div>
 
-          {/* ====================================================
-              MINHAS CORRIDAS
-          ==================================================== */}
-
           <div className="space-y-6">
             <Section
               title="Minhas Corridas em Andamento"
@@ -1778,7 +1933,10 @@ export default function CourierDashboard() {
             >
               {(d) => (
                 <DeliveryCard
-                  key={d.id}
+                  key={
+                    d.id ||
+                    d._id
+                  }
                   d={d}
                   me={user}
                   online={online}
@@ -1795,7 +1953,8 @@ export default function CourierDashboard() {
                     "accepted"
                       ? () =>
                           act(
-                            d.id,
+                            d.id ||
+                              d._id,
                             "start"
                           )
                       : null
@@ -1811,7 +1970,8 @@ export default function CourierDashboard() {
                     )
                       ? () =>
                           act(
-                            d.id,
+                            d.id ||
+                              d._id,
                             "complete"
                           )
                       : null
@@ -1821,7 +1981,8 @@ export default function CourierDashboard() {
                   }
                   onTicket={() => {
                     setTicketForId(
-                      d.id
+                      d.id ||
+                        d._id
                     );
 
                     setShowTicket(
@@ -1832,10 +1993,6 @@ export default function CourierDashboard() {
               )}
             </Section>
 
-            {/* ==================================================
-                HISTÓRICO
-            ================================================== */}
-
             <Section
               title="Histórico"
               empty="Sem histórico ainda."
@@ -1843,7 +2000,10 @@ export default function CourierDashboard() {
             >
               {(d) => (
                 <DeliveryCard
-                  key={d.id}
+                  key={
+                    d.id ||
+                    d._id
+                  }
                   d={d}
                   me={user}
                   online={online}
@@ -1860,7 +2020,8 @@ export default function CourierDashboard() {
                   }
                   onTicket={() => {
                     setTicketForId(
-                      d.id
+                      d.id ||
+                        d._id
                     );
 
                     setShowTicket(
@@ -1889,7 +2050,9 @@ export default function CourierDashboard() {
                 </h2>
 
                 <p className="text-sm text-slate-400 mt-1">
-                  Cadastre onde você deseja receber seus pagamentos.
+                  Cadastre onde você
+                  deseja receber seus
+                  pagamentos.
                 </p>
               </div>
 
@@ -1919,11 +2082,13 @@ export default function CourierDashboard() {
               >
                 <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-2xl p-4">
                   <p className="text-sm font-bold text-emerald-300">
-                    💰 Dados para recebimento
+                    💰 Dados para
+                    recebimento
                   </p>
 
                   <p className="text-xs text-slate-400 mt-1">
-                    Confira os dados antes de salvar.
+                    Confira os dados
+                    antes de salvar.
                   </p>
                 </div>
 
@@ -1933,7 +2098,9 @@ export default function CourierDashboard() {
                     value={
                       accountForm.holder_name
                     }
-                    onChange={(value) =>
+                    onChange={(
+                      value
+                    ) =>
                       updateAccountField(
                         "holder_name",
                         value
@@ -1948,7 +2115,9 @@ export default function CourierDashboard() {
                     value={
                       accountForm.document
                     }
-                    onChange={(value) =>
+                    onChange={(
+                      value
+                    ) =>
                       updateAccountField(
                         "document",
                         value
@@ -1962,7 +2131,9 @@ export default function CourierDashboard() {
                     value={
                       accountForm.bank
                     }
-                    onChange={(value) =>
+                    onChange={(
+                      value
+                    ) =>
                       updateAccountField(
                         "bank",
                         value
@@ -1977,7 +2148,9 @@ export default function CourierDashboard() {
                     value={
                       accountForm.agency
                     }
-                    onChange={(value) =>
+                    onChange={(
+                      value
+                    ) =>
                       updateAccountField(
                         "agency",
                         value
@@ -1991,7 +2164,9 @@ export default function CourierDashboard() {
                     value={
                       accountForm.account
                     }
-                    onChange={(value) =>
+                    onChange={(
+                      value
+                    ) =>
                       updateAccountField(
                         "account",
                         value
@@ -2009,10 +2184,14 @@ export default function CourierDashboard() {
                       value={
                         accountForm.account_type
                       }
-                      onChange={(event) =>
+                      onChange={(
+                        event
+                      ) =>
                         updateAccountField(
                           "account_type",
-                          event.target.value
+                          event
+                            .target
+                            .value
                         )
                       }
                       className="w-full bg-slate-950 border border-slate-700 text-white rounded-xl px-3 py-3 text-sm outline-none focus:border-orange-500"
@@ -2043,10 +2222,14 @@ export default function CourierDashboard() {
                         value={
                           accountForm.pix_key_type
                         }
-                        onChange={(event) =>
+                        onChange={(
+                          event
+                        ) =>
                           updateAccountField(
                             "pix_key_type",
-                            event.target.value
+                            event
+                              .target
+                              .value
                           )
                         }
                         className="w-full bg-slate-950 border border-slate-700 text-white rounded-xl px-3 py-3 text-sm outline-none focus:border-orange-500"
@@ -2078,7 +2261,9 @@ export default function CourierDashboard() {
                       value={
                         accountForm.pix_key
                       }
-                      onChange={(value) =>
+                      onChange={(
+                        value
+                      ) =>
                         updateAccountField(
                           "pix_key",
                           value
@@ -2133,7 +2318,9 @@ export default function CourierDashboard() {
             chatDelivery
           }
           onClose={() =>
-            setChatDelivery(null)
+            setChatDelivery(
+              null
+            )
           }
         />
       )}
@@ -2141,7 +2328,9 @@ export default function CourierDashboard() {
       <TicketModal
         open={showTicket}
         onClose={() =>
-          setShowTicket(false)
+          setShowTicket(
+            false
+          )
         }
         deliveryId={
           ticketForId
@@ -2152,11 +2341,9 @@ export default function CourierDashboard() {
   );
 }
 
-/*
- * ============================================================
+/* ============================================================
  * CAMPO DO FORMULÁRIO
- * ============================================================
- */
+ * ============================================================ */
 
 function Field({
   label,
@@ -2169,6 +2356,7 @@ function Field({
     <div>
       <label className="block text-xs font-bold text-slate-300 mb-2">
         {label}
+
         {required && (
           <span className="text-rose-400 ml-1">
             *
@@ -2194,11 +2382,9 @@ function Field({
   );
 }
 
-/*
- * ============================================================
+/* ============================================================
  * STAT CARD
- * ============================================================
- */
+ * ============================================================ */
 
 function StatCard({
   icon,
@@ -2233,11 +2419,9 @@ function StatCard({
   );
 }
 
-/*
- * ============================================================
+/* ============================================================
  * SECTION
- * ============================================================
- */
+ * ============================================================ */
 
 function Section({
   title,
@@ -2250,9 +2434,7 @@ function Section({
   return (
     <section
       className="bg-slate-900 border border-slate-800 rounded-2xl p-6"
-      onMouseEnter={
-        onSeen
-      }
+      onMouseEnter={onSeen}
     >
       <h3 className="font-bold text-lg text-white mb-4 flex items-center space-x-2">
         <span>
@@ -2266,7 +2448,7 @@ function Section({
         {badge ? (
           <span
             data-testid="new-delivery-badge"
-            className="text-[10px] font-black bg-orange-500 text-slate-950 px-2 py-0.5 rounded-full animate-pulse"
+            className="text-[10px] font-black bg-orange-500 text-slate-950 px-2 py-0.5 rounded-full"
           >
             +{badge} NOVA
             {badge > 1
@@ -2292,11 +2474,9 @@ function Section({
   );
 }
 
-/*
- * ============================================================
+/* ============================================================
  * DELIVERY CARD
- * ============================================================
- */
+ * ============================================================ */
 
 function DeliveryCard({
   d,
@@ -2340,14 +2520,18 @@ function DeliveryCard({
 
     cancelled:
       "text-rose-400 bg-rose-500/20",
-  }[d.status] ||
+  }[
+    d.status
+  ] ||
     "text-slate-300 bg-slate-800";
 
   const gmapsRoute =
     `https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(
-      d.pickup_address || ""
+      d.pickup_address ||
+        ""
     )}&destination=${encodeURIComponent(
-      d.dropoff_address || ""
+      d.dropoff_address ||
+        ""
     )}&travelmode=driving`;
 
   const orderCode =
@@ -2418,7 +2602,10 @@ function DeliveryCard({
           ? "border-orange-500/60 shadow-lg shadow-orange-500/10"
           : "border-slate-800"
       }`}
-      data-testid={`courier-delivery-${d.id}`}
+      data-testid={`courier-delivery-${
+        d.id ||
+        d._id
+      }`}
     >
       <div className="flex items-center justify-between">
         <span className="font-mono text-xs font-bold text-orange-400 bg-orange-500/10 px-2.5 py-1 rounded border border-orange-500/20">
@@ -2464,12 +2651,12 @@ function DeliveryCard({
       <div className="bg-slate-900 p-3 rounded-xl flex items-center justify-between text-xs">
         <div>
           <p className="text-slate-400">
-            Distância / Tempo:
+            Distância /
+            Tempo:
           </p>
 
           <p className="font-mono font-bold text-white">
-            {distanceKm} km
-            (~
+            {distanceKm} km (~
             {estimatedMin}{" "}
             min)
           </p>
@@ -2507,7 +2694,10 @@ function DeliveryCard({
       <div className="flex flex-wrap items-center gap-2 pt-2">
         {onAccept && (
           <button
-            data-testid={`accept-${d.id}`}
+            data-testid={`accept-${
+              d.id ||
+              d._id
+            }`}
             disabled={
               !online ||
               acceptDisabled
@@ -2534,7 +2724,10 @@ function DeliveryCard({
 
         {onStart && (
           <button
-            data-testid={`start-${d.id}`}
+            data-testid={`start-${
+              d.id ||
+              d._id
+            }`}
             onClick={
               onStart
             }
@@ -2546,7 +2739,10 @@ function DeliveryCard({
 
         {onComplete && (
           <button
-            data-testid={`complete-${d.id}`}
+            data-testid={`complete-${
+              d.id ||
+              d._id
+            }`}
             onClick={
               onComplete
             }
@@ -2568,7 +2764,10 @@ function DeliveryCard({
             d.status
           ) && (
             <a
-              data-testid={`navigate-${d.id}`}
+              data-testid={`navigate-${
+                d.id ||
+                d._id
+              }`}
               href={
                 gmapsRoute
               }
@@ -2585,23 +2784,30 @@ function DeliveryCard({
           )}
 
         <button
-          data-testid={`chat-${d.id}`}
+          data-testid={`chat-${
+            d.id ||
+            d._id
+          }`}
           onClick={
             onChat
           }
           className={`relative flex items-center justify-center space-x-1.5 p-2.5 rounded-xl border transition ${
-            unreadCount > 0
-              ? "bg-orange-500/20 hover:bg-orange-500/30 text-orange-300 border-orange-500/60 shadow-lg shadow-orange-500/10 animate-pulse"
+            unreadCount >
+            0
+              ? "bg-orange-500/20 hover:bg-orange-500/30 text-orange-300 border-orange-500/60 shadow-lg shadow-orange-500/10"
               : "bg-slate-800 hover:bg-slate-700 text-orange-400 border-slate-700"
           }`}
           title={
-            unreadCount > 0
+            unreadCount >
+            0
               ? `${unreadCount} mensagem${
-                  unreadCount > 1
+                  unreadCount >
+                  1
                     ? "s"
                     : ""
                 } não lida${
-                  unreadCount > 1
+                  unreadCount >
+                  1
                     ? "s"
                     : ""
                 }`
@@ -2613,7 +2819,10 @@ function DeliveryCard({
           {unreadCount >
             0 && (
             <span
-              data-testid={`chat-unread-${d.id}`}
+              data-testid={`chat-unread-${
+                d.id ||
+                d._id
+              }`}
               className="absolute -top-2 -right-2 min-w-[20px] h-5 px-1.5 rounded-full bg-red-500 text-white text-[11px] font-bold flex items-center justify-center border-2 border-slate-950 shadow-lg"
             >
               {unreadCount >
@@ -2637,4 +2846,3 @@ function DeliveryCard({
     </div>
   );
 }
-
