@@ -1,325 +1,4046 @@
-import React, { useEffect, useState } from "react";
+
+import React, { useCallback, useEffect, useState } from "react";
 import Layout from "@/components/Layout";
 import { api, apiError, API_BASE } from "@/lib/api";
 import { formatBRL } from "@/lib/pricing";
 import { toast } from "sonner";
-import { Loader2, Shield, Users, DollarSign, Package, Headphones, CheckSquare, XSquare, ExternalLink, Save, Calendar, Clock, Plus, Trash2, Power } from "lucide-react";
+import {
+  Loader2,
+  Shield,
+  Users,
+  DollarSign,
+  Package,
+  Headphones,
+  ExternalLink,
+  Save,
+  Calendar,
+  Clock,
+  Plus,
+  Trash2,
+  Power,
+  CheckCircle2,
+  CircleDollarSign,
+  RefreshCw,
+  CreditCard,
+  Eye,
+  X,
+} from "lucide-react";
 
 const WEEKDAYS = [
-  { i: 0, label: "Seg" }, { i: 1, label: "Ter" }, { i: 2, label: "Qua" },
-  { i: 3, label: "Qui" }, { i: 4, label: "Sex" }, { i: 5, label: "Sáb" }, { i: 6, label: "Dom" }
+  { i: 0, label: "Segunda-feira" },
+  { i: 1, label: "Terça-feira" },
+  { i: 2, label: "Quarta-feira" },
+  { i: 3, label: "Quinta-feira" },
+  { i: 4, label: "Sexta-feira" },
+  { i: 5, label: "Sábado" },
+  { i: 6, label: "Domingo" },
 ];
+
+const DEFAULT_OPS = {
+  active: true,
+  disabled_days: [],
+  open_time: "00:00",
+  close_time: "23:59",
+  holidays: [],
+};
+
+const DEFAULT_BANK = {
+  bank: "",
+  agency: "",
+  account: "",
+  pix_key: "",
+};
+
+const DEFAULT_BILLING = {
+  stores: [],
+  current_cycles: [],
+  history: [],
+  couriers: [],
+  courier_current_cycles: [],
+  courier_history: [],
+  weekdays: WEEKDAYS.map((day) => ({
+    value: day.i,
+    label: day.label,
+  })),
+};
+
+const normalizeText = (value, fallback = "") => {
+  if (value === null || value === undefined) {
+    return fallback;
+  }
+
+  return String(value)
+    .replace(/^#+\s*/, "")
+    .trim();
+};
+
+const getUserId = (user) => {
+  return String(user?.id || user?._id || "");
+};
+
+const getStoreName = (store) => {
+  return normalizeText(
+    store?.name || store?.store_name,
+    "Loja"
+  );
+};
+
+const getStatusLabel = (status) => {
+  const normalized = String(status || "").toLowerCase();
+
+  if (normalized === "paid") return "Pago";
+  if (normalized === "closed") return "Fechado";
+
+  if (
+    normalized === "approved" ||
+    normalized === "active"
+  ) {
+    return "Ativo";
+  }
+
+  if (
+    normalized === "under_review" ||
+    normalized === "pending"
+  ) {
+    return "Em análise";
+  }
+
+  if (normalized === "blocked") return "Bloqueado";
+  if (normalized === "open") return "Em aberto";
+  if (normalized === "resolved") return "Resolvido";
+
+  return normalizeText(status, "Desconhecido");
+};
+
+const getBillingStatusClass = (status) => {
+  const normalized = String(status || "").toLowerCase();
+
+  if (normalized === "paid") {
+    return "bg-emerald-500/10 text-emerald-400 border-emerald-500/20";
+  }
+
+  if (normalized === "closed") {
+    return "bg-blue-500/10 text-blue-400 border-blue-500/20";
+  }
+
+  return "bg-amber-500/10 text-amber-400 border-amber-500/20";
+};
+
+const getUserStatusClass = (status) => {
+  const normalized = String(status || "").toLowerCase();
+
+  if (
+    normalized === "active" ||
+    normalized === "approved"
+  ) {
+    return "bg-emerald-500/10 text-emerald-400 border-emerald-500/20";
+  }
+
+  if (normalized === "blocked") {
+    return "bg-red-500/10 text-red-400 border-red-500/20";
+  }
+
+  return "bg-amber-500/10 text-amber-400 border-amber-500/20";
+};
+
+const formatDateBR = (value) => {
+  if (!value) return "-";
+
+  const raw = String(value);
+
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
+    const [year, month, day] = raw.split("-");
+    return `${day}/${month}/${year}`;
+  }
+
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return normalizeText(value, "-");
+  }
+
+  return date.toLocaleDateString("pt-BR");
+};
+
+const formatDateTimeBR = (value) => {
+  if (!value) return "-";
+
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return normalizeText(value, "-");
+  }
+
+  return date.toLocaleString("pt-BR");
+};
+
+const getRoleLabel = (role) => {
+  const normalized = String(role || "").toLowerCase();
+
+  if (
+    normalized === "courier" ||
+    normalized === "delivery" ||
+    normalized === "entregador" ||
+    normalized === "motoboy"
+  ) {
+    return "Entregador";
+  }
+
+  if (
+    normalized === "store" ||
+    normalized === "loja"
+  ) {
+    return "Loja";
+  }
+
+  if (normalized === "admin") {
+    return "Administrador";
+  }
+
+  return normalizeText(role, "-");
+};
+
+const getPixTypeLabel = (type) => {
+  const normalized = String(type || "").toLowerCase();
+
+  if (normalized === "cpf") return "CPF";
+  if (normalized === "cnpj") return "CNPJ";
+
+  if (
+    normalized === "phone" ||
+    normalized === "telefone"
+  ) {
+    return "Telefone";
+  }
+
+  if (normalized === "email") return "E-mail";
+
+  if (
+    normalized === "random" ||
+    normalized === "aleatoria" ||
+    normalized === "aleatória"
+  ) {
+    return "Aleatória";
+  }
+
+  return normalizeText(type, "-");
+};
+
+const getAccountTypeLabel = (type) => {
+  const normalized = String(type || "").toLowerCase();
+
+  if (
+    normalized === "corrente" ||
+    normalized === "checking"
+  ) {
+    return "Conta corrente";
+  }
+
+  if (
+    normalized === "poupanca" ||
+    normalized === "poupança" ||
+    normalized === "savings"
+  ) {
+    return "Conta poupança";
+  }
+
+  if (
+    normalized === "salario" ||
+    normalized === "salário"
+  ) {
+    return "Conta salário";
+  }
+
+  return normalizeText(type, "-");
+};
+
+const hasPaymentAccount = (user) => {
+  const account = user?.payment_account;
+
+  if (!account || typeof account !== "object") {
+    return false;
+  }
+
+  return Boolean(
+    String(account.holder_name || "").trim() ||
+      String(account.document || "").trim() ||
+      String(account.bank || "").trim() ||
+      String(account.agency || "").trim() ||
+      String(account.account || "").trim() ||
+      String(account.pix_key || "").trim()
+  );
+};
+
+const withTimeout = (promise, milliseconds = 10000) => {
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => {
+      setTimeout(() => {
+        reject(
+          new Error(
+            `A requisição excedeu o tempo limite de ${milliseconds / 1000}s.`
+          )
+        );
+      }, milliseconds);
+    }),
+  ]);
+};
 
 export default function AdminDashboard() {
   const [stats, setStats] = useState(null);
   const [users, setUsers] = useState([]);
   const [statements, setStatements] = useState([]);
   const [tickets, setTickets] = useState([]);
-  const [settings, setSettings] = useState({ bank: {} });
-  const [bank, setBank] = useState({ bank: "", agency: "", account: "", pix_key: "" });
-  const [ops, setOps] = useState({ enabled: true, disabled_weekdays: [], open_time: "00:00", close_time: "23:59", holidays: [] });
+
+  const [settings, setSettings] = useState({
+    bank: {},
+  });
+
+  const [bank, setBank] = useState(DEFAULT_BANK);
+  const [ops, setOps] = useState(DEFAULT_OPS);
+  const [billing, setBilling] = useState(DEFAULT_BILLING);
+
   const [newHoliday, setNewHoliday] = useState("");
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [billingLoading, setBillingLoading] = useState(false);
+  const [savingStoreDay, setSavingStoreDay] = useState(null);
+  const [closingStore, setClosingStore] = useState(null);
+  const [closingCourier, setClosingCourier] = useState(null);
+  const [payingCycle, setPayingCycle] = useState(null);
+  const [savingBank, setSavingBank] = useState(false);
+  const [savingOps, setSavingOps] = useState(false);
+  const [selectedCourier, setSelectedCourier] = useState(null);
 
-  const load = async () => {
-    try {
-      const [st, u, s, t, cfg, opsRes] = await Promise.all([
-        api.get("/admin/stats"),
-        api.get("/admin/users"),
-        api.get("/statements"),
-        api.get("/tickets"),
-        api.get("/admin/settings"),
-        api.get("/admin/settings/operations"),
-      ]);
-      setStats(st.data); 
-      setUsers(Array.isArray(u.data) ? u.data : []); 
-      setStatements(Array.isArray(s.data) ? s.data : []); 
-      setTickets(Array.isArray(t.data) ? t.data : []); 
-      setSettings(cfg.data);
-      setBank({ ...cfg.data.bank });
-      setOps({ ...ops, ...opsRes.data });
-    } catch (e) { toast.error(apiError(e)); }
-    finally { setLoading(false); }
+  const getTodayInputDate = () => {
+    const now = new Date();
+    const y = now.getFullYear();
+    const m = String(now.getMonth() + 1).padStart(2, "0");
+    const d = String(now.getDate()).padStart(2, "0");
+    return `${y}-${m}-${d}`;
   };
 
-  useEffect(() => { load(); const t = setInterval(load, 8000); return () => clearInterval(t); }, []);
+  const getMonthStartInputDate = () => {
+    const now = new Date();
+    const y = now.getFullYear();
+    const m = String(now.getMonth() + 1).padStart(2, "0");
+    return `${y}-${m}-01`;
+  };
 
-  const patchUser = async (identifier, upd, msg) => {
-    try { 
-      await api.patch(`/admin/users/update-status`, { identifier, ...upd }); 
-      toast.success(msg); 
-      await load(); 
-    } catch (e) { 
-      toast.error(apiError(e)); 
+  const [periodStart, setPeriodStart] = useState(getMonthStartInputDate());
+  const [periodEnd, setPeriodEnd] = useState(getTodayInputDate());
+  const [periodBilling, setPeriodBilling] = useState(null);
+  const [periodBillingLoading, setPeriodBillingLoading] = useState(false);
+
+  const loadBilling = useCallback(
+    async (showLoader = true) => {
+      try {
+        if (showLoader) {
+          setBillingLoading(true);
+        }
+
+        const response = await withTimeout(
+          api.get("/admin/billing"),
+          10000
+        );
+
+        const data = response?.data || {};
+
+        setBilling({
+          stores: Array.isArray(data.stores)
+            ? data.stores
+            : [],
+
+          current_cycles: Array.isArray(
+            data.current_cycles
+          )
+            ? data.current_cycles
+            : [],
+
+          history: Array.isArray(data.history)
+            ? data.history
+            : [],
+
+          couriers: Array.isArray(data.couriers)
+            ? data.couriers
+            : [],
+
+          courier_current_cycles: Array.isArray(
+            data.courier_current_cycles || data.courier_cycles
+          )
+            ? (data.courier_current_cycles || data.courier_cycles)
+            : [],
+
+          courier_history: Array.isArray(
+            data.courier_history || data.courier_billing_history
+          )
+            ? (data.courier_history || data.courier_billing_history)
+            : [],
+
+          weekdays:
+            Array.isArray(data.weekdays) &&
+            data.weekdays.length > 0
+              ? data.weekdays
+              : WEEKDAYS.map((day) => ({
+                  value: day.i,
+                  label: day.label,
+                })),
+        });
+      } catch (e) {
+        console.error(
+          "Erro ao carregar faturamento:",
+          e
+        );
+
+        if (showLoader) {
+          toast.error(
+            `Erro ao carregar fechamentos: ${apiError(e)}`
+          );
+        }
+      } finally {
+        if (showLoader) {
+          setBillingLoading(false);
+        }
+      }
+    },
+    []
+  );
+
+  const loadStats = useCallback(async () => {
+    try {
+      const response = await withTimeout(
+        api.get("/admin/stats"),
+        10000
+      );
+
+      setStats(response?.data || null);
+    } catch (e) {
+      console.error(
+        "Erro ao atualizar estatísticas:",
+        e
+      );
+    }
+  }, []);
+
+  const loadAll = useCallback(
+    async (showLoader = false) => {
+      if (showLoader) {
+        setLoading(true);
+      }
+
+      try {
+        const results =
+          await Promise.allSettled([
+            withTimeout(
+              api.get("/admin/stats"),
+              10000
+            ),
+
+            withTimeout(
+              api.get("/admin/users"),
+              10000
+            ),
+
+            withTimeout(
+              api.get("/statements"),
+              10000
+            ),
+
+            withTimeout(
+              api.get("/tickets"),
+              10000
+            ),
+
+            withTimeout(
+              api.get("/admin/settings"),
+              10000
+            ),
+
+            withTimeout(
+              api.get(
+                "/admin/settings/operations"
+              ),
+              10000
+            ),
+
+            withTimeout(
+              api.get("/admin/billing"),
+              10000
+            ),
+          ]);
+
+        const [
+          statsResult,
+          usersResult,
+          statementsResult,
+          ticketsResult,
+          settingsResult,
+          operationsResult,
+          billingResult,
+        ] = results;
+
+        if (
+          statsResult.status === "fulfilled"
+        ) {
+          setStats(
+            statsResult.value?.data || null
+          );
+        } else {
+          console.error(
+            "Erro em /admin/stats:",
+            statsResult.reason
+          );
+        }
+
+        if (
+          usersResult.status === "fulfilled"
+        ) {
+          setUsers(
+            Array.isArray(
+              usersResult.value?.data
+            )
+              ? usersResult.value.data
+              : []
+          );
+        } else {
+          console.error(
+            "Erro em /admin/users:",
+            usersResult.reason
+          );
+        }
+
+        if (
+          statementsResult.status ===
+          "fulfilled"
+        ) {
+          setStatements(
+            Array.isArray(
+              statementsResult.value?.data
+            )
+              ? statementsResult.value.data
+              : []
+          );
+        } else {
+          console.error(
+            "Erro em /statements:",
+            statementsResult.reason
+          );
+        }
+
+        if (
+          ticketsResult.status === "fulfilled"
+        ) {
+          setTickets(
+            Array.isArray(
+              ticketsResult.value?.data
+            )
+              ? ticketsResult.value.data
+              : []
+          );
+        } else {
+          console.error(
+            "Erro em /tickets:",
+            ticketsResult.reason
+          );
+        }
+
+        if (
+          settingsResult.status ===
+          "fulfilled"
+        ) {
+          const configData =
+            settingsResult.value?.data || {
+              bank: {},
+            };
+
+          setSettings(configData);
+
+          setBank({
+            bank:
+              configData?.bank?.bank ||
+              "",
+            agency:
+              configData?.bank?.agency ||
+              "",
+            account:
+              configData?.bank?.account ||
+              "",
+            pix_key:
+              configData?.bank?.pix_key ||
+              "",
+          });
+        } else {
+          console.error(
+            "Erro em /admin/settings:",
+            settingsResult.reason
+          );
+        }
+
+        if (
+          operationsResult.status ===
+          "fulfilled"
+        ) {
+          const operationsData =
+            operationsResult.value?.data || {};
+
+          setOps({
+            ...DEFAULT_OPS,
+            ...operationsData,
+
+            disabled_days: Array.isArray(
+              operationsData?.disabled_days
+            )
+              ? operationsData.disabled_days
+              : [],
+
+            holidays: Array.isArray(
+              operationsData?.holidays
+            )
+              ? operationsData.holidays
+              : [],
+          });
+        } else {
+          console.error(
+            "Erro em /admin/settings/operations:",
+            operationsResult.reason
+          );
+        }
+
+        if (
+          billingResult.status === "fulfilled"
+        ) {
+          const data =
+            billingResult.value?.data || {};
+
+          setBilling({
+            stores: Array.isArray(
+              data.stores
+            )
+              ? data.stores
+              : [],
+
+            current_cycles: Array.isArray(
+              data.current_cycles
+            )
+              ? data.current_cycles
+              : [],
+
+            history: Array.isArray(
+              data.history
+            )
+              ? data.history
+              : [],
+
+            couriers: Array.isArray(
+              data.couriers
+            )
+              ? data.couriers
+              : [],
+
+            courier_current_cycles: Array.isArray(
+              data.courier_current_cycles ||
+                data.courier_cycles
+            )
+              ? (data.courier_current_cycles ||
+                data.courier_cycles)
+              : [],
+
+            courier_history: Array.isArray(
+              data.courier_history ||
+                data.courier_billing_history
+            )
+              ? (data.courier_history ||
+                data.courier_billing_history)
+              : [],
+
+            weekdays:
+              Array.isArray(data.weekdays) &&
+              data.weekdays.length > 0
+                ? data.weekdays
+                : WEEKDAYS.map((day) => ({
+                    value: day.i,
+                    label: day.label,
+                  })),
+          });
+        } else {
+          console.error(
+            "Erro em /admin/billing:",
+            billingResult.reason
+          );
+        }
+      } catch (e) {
+        console.error(
+          "Erro inesperado ao carregar painel:",
+          e
+        );
+
+        toast.error(
+          `Erro ao carregar painel: ${apiError(e)}`
+        );
+      } finally {
+        setLoading(false);
+      }
+    },
+    []
+  );
+
+  useEffect(() => {
+    let mounted = true;
+
+    const initialize = async () => {
+      if (!mounted) {
+        return;
+      }
+
+      await loadAll(true);
+    };
+
+    initialize();
+
+    return () => {
+      mounted = false;
+    };
+  }, [loadAll]);
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      loadStats();
+      loadBilling(false);
+    }, 8000);
+
+    return () => {
+      clearInterval(timer);
+    };
+  }, [loadStats, loadBilling]);
+
+  const handleRefresh = async () => {
+    try {
+      setRefreshing(true);
+
+      await loadAll(false);
+
+      toast.success("Painel atualizado");
+    } catch (e) {
+      toast.error(apiError(e));
+    } finally {
+      setRefreshing(false);
     }
   };
 
-  const approveUser = async (identifier) => { 
-    try { 
-      await api.post(`/admin/users/approve`, { identifier }); 
-      toast.success("Usuário aprovado."); 
-      await load(); 
-    } catch (e) { 
-      toast.error(apiError(e)); 
-    } 
-  };
-  
-  const approveStmt = async (id, ok) => { try { await api.post(`/statements/${id}/approve`, { approved: ok }); toast.success(ok ? "Repasse aprovado!" : "Comprovante rejeitado."); await load(); } catch (e) { toast.error(apiError(e)); } };
-  const resolveTicket = async (id) => { try { await api.post(`/tickets/${id}/resolve`); toast.success("Chamado resolvido."); await load(); } catch (e) { toast.error(apiError(e)); } };
+  const patchUser = async (
+    identifier,
+    update,
+    message
+  ) => {
+    if (!identifier) {
+      toast.error(
+        "Identificador do usuário inválido"
+      );
+      return;
+    }
 
-  const saveBank = async () => { try { await api.put("/admin/settings/bank", bank); toast.success("Dados bancários salvos."); await load(); } catch (e) { toast.error(apiError(e)); } };
+    try {
+      await api.patch(
+        `/admin/users/${encodeURIComponent(
+          identifier
+        )}`,
+        update
+      );
+
+      toast.success(
+        message ||
+          "Usuário atualizado com sucesso"
+      );
+
+      const response = await api.get(
+        "/admin/users"
+      );
+
+      setUsers(
+        Array.isArray(response?.data)
+          ? response.data
+          : []
+      );
+    } catch (e) {
+      toast.error(apiError(e));
+    }
+  };
+
+  const deleteUser = async (identifier, user) => {
+    if (!identifier) {
+      toast.error("Identificador do usuário inválido");
+      return;
+    }
+
+    const role = String(user?.role || "").toLowerCase();
+    if (role === "admin") {
+      toast.error("Contas de administrador não podem ser excluídas.");
+      return;
+    }
+
+    const roleLabel =
+      role === "store" || role === "loja"
+        ? "loja"
+        : "entregador";
+
+    const name = normalizeText(user?.name, roleLabel);
+    const confirmed = window.confirm(
+      `Tem certeza que deseja EXCLUIR a conta de ${roleLabel} "${name}"?\n\nEssa ação remove o acesso da conta. O histórico de entregas e faturamentos será preservado.`
+    );
+
+    if (!confirmed) return;
+
+    try {
+      await api.delete(
+        `/admin/users/${encodeURIComponent(identifier)}`
+      );
+
+      toast.success("Conta excluída com sucesso");
+
+      const response = await api.get("/admin/users");
+      setUsers(
+        Array.isArray(response?.data)
+          ? response.data
+          : []
+      );
+
+      await loadStats();
+      await loadBilling(true);
+    } catch (e) {
+      toast.error(`Não foi possível excluir a conta: ${apiError(e)}`);
+    }
+  };
+
+  const loadPeriodBilling = async () => {
+    if (!periodStart || !periodEnd) {
+      toast.error("Informe a data inicial e a data final.");
+      return;
+    }
+
+    if (periodStart > periodEnd) {
+      toast.error("A data inicial não pode ser maior que a data final.");
+      return;
+    }
+
+    try {
+      setPeriodBillingLoading(true);
+
+      const response = await withTimeout(
+        api.get("/admin/billing/period", {
+          params: {
+            start_date: periodStart,
+            end_date: periodEnd,
+          },
+        }),
+        15000
+      );
+
+      setPeriodBilling(response?.data || null);
+      toast.success("Faturamento do período atualizado");
+    } catch (e) {
+      console.error("Erro ao consultar faturamento por período:", e);
+      toast.error(`Erro ao consultar período: ${apiError(e)}`);
+    } finally {
+      setPeriodBillingLoading(false);
+    }
+  };
+
+  const approveUser = async (identifier) => {
+    if (!identifier) {
+      toast.error(
+        "Identificador do usuário inválido"
+      );
+      return;
+    }
+
+    try {
+      await api.post(
+        `/admin/users/${encodeURIComponent(
+          identifier
+        )}/approve`
+      );
+
+      toast.success(
+        "Usuário aprovado com sucesso"
+      );
+
+      const response = await api.get(
+        "/admin/users"
+      );
+
+      setUsers(
+        Array.isArray(response?.data)
+          ? response.data
+          : []
+      );
+    } catch (e) {
+      toast.error(apiError(e));
+    }
+  };
+
+  const approveStmt = async (
+    id,
+    approved
+  ) => {
+    if (!id) {
+      toast.error(
+        "Identificador do comprovante inválido"
+      );
+      return;
+    }
+
+    try {
+      await api.post(
+        `/statements/${encodeURIComponent(
+          id
+        )}/approve`,
+        {
+          approved,
+        }
+      );
+
+      toast.success(
+        approved
+          ? "Comprovante aprovado"
+          : "Comprovante rejeitado"
+      );
+
+      const response = await api.get(
+        "/statements"
+      );
+
+      setStatements(
+        Array.isArray(response?.data)
+          ? response.data
+          : []
+      );
+
+      await loadStats();
+    } catch (e) {
+      toast.error(apiError(e));
+    }
+  };
+
+  const resolveTicket = async (id) => {
+    if (!id) {
+      toast.error(
+        "Identificador do chamado inválido"
+      );
+      return;
+    }
+
+    try {
+      await api.post(
+        `/tickets/${encodeURIComponent(
+          id
+        )}/resolve`
+      );
+
+      toast.success(
+        "Chamado resolvido"
+      );
+
+      const response = await api.get(
+        "/tickets"
+      );
+
+      setTickets(
+        Array.isArray(response?.data)
+          ? response.data
+          : []
+      );
+
+      await loadStats();
+    } catch (e) {
+      toast.error(apiError(e));
+    }
+  };
+
+  const saveBank = async () => {
+    try {
+      setSavingBank(true);
+
+      await api.put(
+        "/admin/settings/bank",
+        {
+          bank: String(
+            bank.bank || ""
+          ).trim(),
+
+          agency: String(
+            bank.agency || ""
+          ).trim(),
+
+          account: String(
+            bank.account || ""
+          ).trim(),
+
+          pix_key: String(
+            bank.pix_key || ""
+          ).trim(),
+        }
+      );
+
+      toast.success(
+        "Dados bancários salvos"
+      );
+
+      const response = await api.get(
+        "/admin/settings"
+      );
+
+      setSettings(
+        response?.data || {
+          bank: {},
+        }
+      );
+    } catch (e) {
+      toast.error(apiError(e));
+    } finally {
+      setSavingBank(false);
+    }
+  };
 
   const saveOps = async (patch) => {
-    const next = { ...ops, ...patch };
-    setOps(next);
-    try { await api.put("/admin/settings/operations", patch); toast.success("Horários atualizados."); }
-    catch (e) { toast.error(apiError(e)); }
+    try {
+      setSavingOps(true);
+
+      const nextOps = {
+        ...ops,
+        ...patch,
+
+        disabled_days: Array.isArray(
+          patch?.disabled_days ??
+            ops.disabled_days
+        )
+          ? patch?.disabled_days ??
+            ops.disabled_days
+          : [],
+
+        holidays: Array.isArray(
+          patch?.holidays ??
+            ops.holidays
+        )
+          ? patch?.holidays ??
+            ops.holidays
+          : [],
+      };
+
+      await api.put(
+        "/admin/settings/operations",
+        nextOps
+      );
+
+      setOps(nextOps);
+
+      toast.success(
+        "Configurações operacionais salvas"
+      );
+    } catch (e) {
+      toast.error(apiError(e));
+    } finally {
+      setSavingOps(false);
+    }
   };
 
-  const toggleWeekday = (i) => {
-    const set = new Set(ops.disabled_weekdays || []);
-    if (set.has(i)) set.delete(i); else set.add(i);
-    saveOps({ disabled_weekdays: Array.from(set).sort() });
+  const toggleWeekday = (day) => {
+    const current = Array.isArray(
+      ops.disabled_days
+    )
+      ? ops.disabled_days
+      : [];
+
+    const exists = current.includes(day);
+
+    const next = exists
+      ? current.filter(
+          (item) => item !== day
+        )
+      : [...current, day];
+
+    saveOps({
+      disabled_days: next,
+    });
   };
+
   const addHoliday = () => {
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(newHoliday)) { toast.error("Use o formato AAAA-MM-DD"); return; }
-    saveOps({ holidays: Array.from(new Set([...(ops.holidays || []), newHoliday])).sort() });
-    setNewHoliday("");
-  };
-  const removeHoliday = (h) => saveOps({ holidays: (ops.holidays || []).filter(x => x !== h) });
+    const value = String(
+      newHoliday || ""
+    ).trim();
 
-  if (loading) return <Layout subtitle="Admin Master"><Loader2 className="w-6 h-6 animate-spin text-slate-500" /></Layout>;
+    if (
+      !/^\d{4}-\d{2}-\d{2}$/.test(
+        value
+      )
+    ) {
+      toast.error(
+        "Informe a data no formato YYYY-MM-DD"
+      );
+      return;
+    }
+
+    const current = Array.isArray(
+      ops.holidays
+    )
+      ? ops.holidays
+      : [];
+
+    if (current.includes(value)) {
+      toast.error(
+        "Essa data já está cadastrada"
+      );
+      return;
+    }
+
+    setNewHoliday("");
+
+    saveOps({
+      holidays: [
+        ...current,
+        value,
+      ].sort(),
+    });
+  };
+
+  const removeHoliday = (holiday) => {
+    const current = Array.isArray(
+      ops.holidays
+    )
+      ? ops.holidays
+      : [];
+
+    saveOps({
+      holidays: current.filter(
+        (item) => item !== holiday
+      ),
+    });
+  };
+
+  const saveStoreClosingDay = async (
+    storeId,
+    closingWeekday
+  ) => {
+    if (!storeId) {
+      toast.error(
+        "Identificador da loja inválido"
+      );
+      return;
+    }
+
+    try {
+      setSavingStoreDay(storeId);
+
+      await api.put(
+        `/admin/stores/${encodeURIComponent(
+          storeId
+        )}/billing`,
+        {
+          closing_weekday:
+            Number(closingWeekday),
+        }
+      );
+
+      toast.success(
+        "Dia de fechamento atualizado"
+      );
+
+      await loadBilling(true);
+    } catch (e) {
+      toast.error(apiError(e));
+    } finally {
+      setSavingStoreDay(null);
+    }
+  };
+
+  const closeBilling = async (storeId) => {
+    if (!storeId) {
+      toast.error(
+        "Identificador da loja inválido"
+      );
+      return;
+    }
+
+    try {
+      setClosingStore(storeId);
+
+      await api.post(
+        `/admin/billing/${encodeURIComponent(
+          storeId
+        )}/close`
+      );
+
+      toast.success(
+        "Fechamento realizado com sucesso"
+      );
+
+      await loadBilling(true);
+      await loadStats();
+    } catch (e) {
+      toast.error(apiError(e));
+    } finally {
+      setClosingStore(null);
+    }
+  };
+
+  const payBilling = async (cycleId) => {
+    if (!cycleId) {
+      toast.error(
+        "Identificador do ciclo inválido"
+      );
+      return;
+    }
+
+    try {
+      setPayingCycle(cycleId);
+
+      await api.post(
+        `/admin/billing/cycles/${encodeURIComponent(
+          cycleId
+        )}/pay`
+      );
+
+      toast.success(
+        "Fechamento marcado como pago"
+      );
+
+      await loadBilling(true);
+      await loadStats();
+    } catch (e) {
+      toast.error(apiError(e));
+    } finally {
+      setPayingCycle(null);
+    }
+  };
+
+  const closeCourierBilling = async (courierId) => {
+    if (!courierId) {
+      toast.error("Identificador do entregador inválido");
+      return;
+    }
+
+    try {
+      setClosingCourier(courierId);
+
+      await api.post(
+        `/admin/billing/couriers/${encodeURIComponent(
+          courierId
+        )}/close`
+      );
+
+      toast.success("Fechamento do entregador realizado com sucesso");
+      await loadBilling(true);
+      await loadStats();
+    } catch (e) {
+      toast.error(apiError(e));
+    } finally {
+      setClosingCourier(null);
+    }
+  };
+
+  const payCourierBilling = async (cycleId) => {
+    if (!cycleId) {
+      toast.error("Este período ainda não foi fechado para pagamento.");
+      return;
+    }
+
+    try {
+      setPayingCycle(cycleId);
+
+      await api.post(
+        `/admin/billing/courier-cycles/${encodeURIComponent(
+          cycleId
+        )}/pay`
+      );
+
+      toast.success("Pagamento do entregador confirmado com sucesso");
+      await loadBilling(true);
+      await loadStats();
+    } catch (e) {
+      toast.error(apiError(e));
+    } finally {
+      setPayingCycle(null);
+    }
+  };
+
+  const getCurrentCycleForStore = (
+    storeId
+  ) => {
+    return (
+      billing.current_cycles.find(
+        (cycle) =>
+          String(cycle?.store_id) ===
+          String(storeId)
+      ) || null
+    );
+  };
+
+  const getBillingDayLabel = (
+    weekday
+  ) => {
+    const found = WEEKDAYS.find(
+      (item) =>
+        Number(item.i) ===
+        Number(weekday)
+    );
+
+    return (
+      found?.label ||
+      "Domingo"
+    );
+  };
+
+  const couriers = users.filter((user) => {
+    const role = String(
+      user?.role || ""
+    ).toLowerCase();
+
+    return (
+      role === "courier" ||
+      role === "delivery" ||
+      role === "entregador" ||
+      role === "motoboy"
+    );
+  });
+
+  const underReviewStatements =
+    statements.filter(
+      (statement) =>
+        String(
+          statement?.status || ""
+        ).toLowerCase() ===
+        "under_review"
+    );
+
+  const openTickets = tickets.filter(
+    (ticket) =>
+      String(
+        ticket?.status || ""
+      ).toLowerCase() === "open"
+  );
+
+  const totalBillingOpen =
+    billing.current_cycles
+      .filter(
+        (cycle) =>
+          String(
+            cycle?.status || ""
+          ).toLowerCase() ===
+          "open"
+      )
+      .reduce(
+        (sum, cycle) =>
+          sum +
+          Number(
+            cycle?.total_fee || 0
+          ),
+        0
+      );
+
+  const totalBillingClosed =
+    billing.history
+      .filter(
+        (cycle) =>
+          String(
+            cycle?.status || ""
+          ).toLowerCase() ===
+          "closed"
+      )
+      .reduce(
+        (sum, cycle) =>
+          sum +
+          Number(
+            cycle?.total_fee || 0
+          ),
+        0
+      );
+
+  const totalBillingPaid =
+    billing.history
+      .filter(
+        (cycle) =>
+          String(
+            cycle?.status || ""
+          ).toLowerCase() ===
+          "paid"
+      )
+      .reduce(
+        (sum, cycle) =>
+          sum +
+          Number(
+            cycle?.total_fee || 0
+          ),
+        0
+      );
+
+  if (loading) {
+    return (
+      <Layout subtitle="Admin Master">
+        <div className="flex items-center gap-3 text-slate-400">
+          <Loader2 className="w-6 h-6 animate-spin" />
+
+          <span>
+            Carregando painel administrativo...
+          </span>
+        </div>
+      </Layout>
+    );
+  }
 
   return (
-    <Layout subtitle="Painel Admin (Master)">
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4" data-testid="admin-dashboard">
-        <StatCard icon={<DollarSign className="w-5 h-5" />} label="Taxas Coletadas" value={formatBRL((stats?.delivered || 0) * 1)} sub="R$ 1,00 por entrega" testid="admin-fees" />
-        <StatCard icon={<Users className="w-5 h-5" />} label="Usuários" value={stats?.total_users} sub={`${stats?.total_stores} lojas · ${stats?.total_couriers} motoboys`} />
-        <StatCard icon={<Package className="w-5 h-5" />} label="Entregas" value={stats?.total_deliveries} sub={`${stats?.delivered} concluídas`} />
-        <StatCard icon={<Headphones className="w-5 h-5" />} label="Chamados Abertos" value={stats?.open_tickets} sub="Central de mediação" />
-      </div>
+    <Layout subtitle="Painel Admin Master">
+      <div className="space-y-6">
 
-      <section className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-4 my-6">
-        <h3 className="font-bold text-lg text-white flex items-center space-x-2">
-          <DollarSign className="w-5 h-5 text-orange-400" />
-          <span>Taxas por Loja e Data (Para Cobrança)</span>
-        </h3>
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-sm">
-            <thead>
-              <tr className="border-b border-slate-800 text-xs text-slate-400 font-mono">
-                <th className="py-3 px-2">Loja</th>
-                <th className="py-3 px-2">Data</th>
-                <th className="py-3 px-2">Entregas Concluídas</th>
-                <th className="py-3 px-2">Taxa Total (R$ 1,00/cada)</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-800/60">
-              {(!stats?.store_fees_details || stats.store_fees_details.length === 0) ? (
-                <tr>
-                  <td colSpan="4" className="py-4 text-center text-sm text-slate-500">Nenhuma taxa registrada ainda.</td>
-                </tr>
-              ) : (
-                stats.store_fees_details.map((item, idx) => (
-                  <tr key={idx} className="hover:bg-slate-800/40">
-                    <td className="py-3 px-2 font-semibold text-white">{item.store_name}</td>
-                    <td className="py-3 px-2 text-slate-300 font-mono text-xs">{item.date}</td>
-                    <td className="py-3 px-2 text-slate-300">{item.deliveries_count} entregas</td>
-                    <td className="py-3 px-2 font-bold text-orange-400">{formatBRL(item.total_fee)}</td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
-      </section>
+        <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+          <div>
+            <div className="flex items-center gap-3">
+              <div className="w-11 h-11 rounded-xl bg-slate-800 border border-slate-700 flex items-center justify-center">
+                <Shield className="w-6 h-6 text-slate-300" />
+              </div>
 
-      <section className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-4">
-          <h3 className="font-bold text-lg text-white flex items-center space-x-2"><DollarSign className="w-5 h-5 text-orange-400" /><span>Configuração Bancária</span></h3>
-          <div className="grid grid-cols-2 gap-3 text-sm">
-            <FormInput label="Banco" value={bank.bank} onChange={(v) => setBank({ ...bank, bank: v })} testid="bank-name" />
-            <FormInput label="Agência" value={bank.agency} onChange={(v) => setBank({ ...bank, agency: v })} testid="bank-agency" />
-            <FormInput label="Conta" value={bank.account} onChange={(v) => setBank({ ...bank, account: v })} testid="bank-account" />
-            <FormInput label="Chave PIX" value={bank.pix_key} onChange={(v) => setBank({ ...bank, pix_key: v })} testid="bank-pix" />
+              <div>
+                <h1 className="text-2xl font-bold text-white">
+                  Admin Master
+                </h1>
+
+                <p className="text-sm text-slate-400">
+                  Gestão geral do GiroExpress
+                </p>
+              </div>
+            </div>
           </div>
-          <button data-testid="save-bank-btn" onClick={saveBank} className="bg-orange-500 hover:bg-orange-400 text-slate-950 font-bold px-5 py-2.5 rounded-xl text-xs flex items-center space-x-2"><Save className="w-4 h-4" /><span>Salvar Dados Bancários</span></button>
+
+          <button
+            type="button"
+            onClick={handleRefresh}
+            disabled={refreshing}
+            className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-700 bg-slate-900 px-4 py-2.5 text-sm font-medium text-slate-200 hover:bg-slate-800 transition disabled:opacity-50"
+          >
+            <RefreshCw
+              className={`w-4 h-4 ${
+                refreshing
+                  ? "animate-spin"
+                  : ""
+              }`}
+            />
+
+            {refreshing
+              ? "Atualizando..."
+              : "Atualizar"}
+          </button>
         </div>
 
-        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-4">
-          <h3 className="font-bold text-lg text-white flex items-center space-x-2"><Shield className="w-5 h-5 text-orange-400" /><span>Conferência de Comprovantes</span></h3>
-          <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
-            {statements.length === 0 && <p className="text-sm text-slate-400">Nenhum fechamento ainda.</p>}
-            {(Array.isArray(statements) ? statements : []).map(s => (
-              <div key={s.id} className="bg-slate-950 border border-slate-800 p-3 rounded-xl flex flex-wrap items-center justify-between gap-3" data-testid={`admin-stmt-${s.id}`}>
-                <div>
-                  <p className="font-bold text-white text-sm">{s.store_name}</p>
-                  <p className="text-xs text-slate-400">{s.cycle_label}</p>
-                  <p className="text-xs font-mono text-orange-400 mt-0.5">{formatBRL(s.total_gross)} · {s.total_deliveries} entregas</p>
-                </div>
-                <div className="flex items-center space-x-2">
-                  <span className={`text-[10px] px-2 py-0.5 rounded font-bold ${s.status === "approved" ? "bg-emerald-500/20 text-emerald-400" : s.status === "under_review" ? "bg-amber-500/20 text-amber-400" : "bg-slate-800 text-slate-400"}`}>
-                    {s.status.replace("_", " ").toUpperCase()}
-                  </span>
-                  {s.proof_path && <a href={`${API_BASE}/api/files?path=${encodeURIComponent(s.proof_path)}`} target="_blank" rel="noreferrer" className="text-orange-400 hover:underline text-xs flex items-center space-x-1"><ExternalLink className="w-3 h-3" /><span>Ver</span></a>}
-                  {s.status === "under_review" && (
-                    <>
-                      <button data-testid={`approve-stmt-${s.id}`} onClick={() => approveStmt(s.id, true)} className="bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold px-3 py-1 rounded">Aprovar</button>
-                      <button onClick={() => approveStmt(s.id, false)} className="bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold px-3 py-1 rounded">Rejeitar</button>
-                    </>
+        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-slate-400">
+                  Taxas coletadas
+                </p>
+
+                <p className="text-2xl font-bold text-white mt-1">
+                  {formatBRL(
+                    Number(
+                      stats?.platform_fees_collected ||
+                        0
+                    )
                   )}
+                </p>
+
+                <p className="text-xs text-slate-500 mt-1">
+                  R$ 1,00 por entrega
+                </p>
+              </div>
+
+              <div className="w-10 h-10 rounded-xl bg-emerald-500/10 flex items-center justify-center">
+                <DollarSign className="w-5 h-5 text-emerald-400" />
+              </div>
+            </div>
+          </div>
+
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-slate-400">
+                  Usuários
+                </p>
+
+                <p className="text-2xl font-bold text-white mt-1">
+                  {stats?.total_users ?? 0}
+                </p>
+
+                <p className="text-xs text-slate-500 mt-1">
+                  {stats?.total_stores ?? 0} lojas ·{" "}
+                  {stats?.total_couriers ?? 0} motoboys
+                </p>
+              </div>
+
+              <div className="w-10 h-10 rounded-xl bg-blue-500/10 flex items-center justify-center">
+                <Users className="w-5 h-5 text-blue-400" />
+              </div>
+            </div>
+          </div>
+
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-slate-400">
+                  Entregas concluídas
+                </p>
+
+                <p className="text-2xl font-bold text-white mt-1">
+                  {stats?.delivered ?? 0}
+                </p>
+
+                <p className="text-xs text-slate-500 mt-1">
+                  De {stats?.total_deliveries ?? 0} entregas
+                </p>
+              </div>
+
+              <div className="w-10 h-10 rounded-xl bg-purple-500/10 flex items-center justify-center">
+                <Package className="w-5 h-5 text-purple-400" />
+              </div>
+            </div>
+          </div>
+
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-slate-400">
+                  Chamados abertos
+                </p>
+
+                <p className="text-2xl font-bold text-white mt-1">
+                  {stats?.open_tickets ??
+                    openTickets.length}
+                </p>
+
+                <p className="text-xs text-slate-500 mt-1">
+                  Suporte pendente
+                </p>
+              </div>
+
+              <div className="w-10 h-10 rounded-xl bg-orange-500/10 flex items-center justify-center">
+                <Headphones className="w-5 h-5 text-orange-400" />
+              </div>
+            </div>
+          </div>
+
+        </div>
+
+        <section className="bg-slate-900 border border-slate-800 rounded-2xl p-6">
+          <div className="flex items-center justify-between mb-5">
+            <div>
+              <h2 className="text-lg font-semibold text-white">
+                Resumo dos fechamentos
+              </h2>
+
+              <p className="text-sm text-slate-400 mt-1">
+                Acompanhamento das cobranças semanais das lojas
+              </p>
+            </div>
+
+            <CircleDollarSign className="w-6 h-6 text-emerald-400" />
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+
+            <div className="rounded-xl border border-slate-800 bg-slate-950 p-4">
+              <p className="text-sm text-slate-400">
+                Em aberto
+              </p>
+
+              <p className="text-xl font-bold text-amber-400 mt-1">
+                {formatBRL(totalBillingOpen)}
+              </p>
+            </div>
+
+            <div className="rounded-xl border border-slate-800 bg-slate-950 p-4">
+              <p className="text-sm text-slate-400">
+                Fechados
+              </p>
+
+              <p className="text-xl font-bold text-blue-400 mt-1">
+                {formatBRL(totalBillingClosed)}
+              </p>
+            </div>
+
+            <div className="rounded-xl border border-slate-800 bg-slate-950 p-4">
+              <p className="text-sm text-slate-400">
+                Pagos
+              </p>
+
+              <p className="text-xl font-bold text-emerald-400 mt-1">
+                {formatBRL(totalBillingPaid)}
+              </p>
+            </div>
+
+          </div>
+        </section>
+
+        <section className="bg-slate-900 border border-slate-800 rounded-2xl p-6">
+
+          <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between mb-6">
+
+            <div>
+              <h2 className="text-lg font-semibold text-white flex items-center gap-2">
+                <Calendar className="w-5 h-5 text-blue-400" />
+                Fechamento das lojas
+              </h2>
+
+              <p className="text-sm text-slate-400 mt-1">
+                Configure o dia de fechamento e acompanhe cada ciclo semanal.
+              </p>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => loadBilling(true)}
+              disabled={billingLoading}
+              className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-700 bg-slate-950 px-4 py-2 text-sm text-slate-200 hover:bg-slate-800 disabled:opacity-50"
+            >
+              <RefreshCw
+                className={`w-4 h-4 ${
+                  billingLoading
+                    ? "animate-spin"
+                    : ""
+                }`}
+              />
+
+              Atualizar fechamentos
+            </button>
+          </div>
+
+          {billingLoading &&
+          billing.stores.length === 0 ? (
+            <div className="flex items-center justify-center py-12 text-slate-400">
+              <Loader2 className="w-6 h-6 animate-spin mr-3" />
+              Carregando fechamentos...
+            </div>
+          ) : billing.stores.length === 0 ? (
+            <div className="rounded-xl border border-dashed border-slate-700 p-8 text-center">
+              <p className="text-slate-400">
+                Nenhuma loja cadastrada.
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-4">
+
+              {billing.stores.map(
+                (store, index) => {
+                  const storeId = String(
+                    store.id ||
+                      store._id ||
+                      `store-${index}`
+                  );
+
+                  const cycle =
+                    getCurrentCycleForStore(
+                      storeId
+                    );
+
+                  const isSaving =
+                    savingStoreDay ===
+                    storeId;
+
+                  const isClosing =
+                    closingStore ===
+                    storeId;
+
+                  const cycleStatus =
+                    cycle?.status ||
+                    "open";
+
+                  return (
+                    <div
+                      key={`store-${storeId}-${index}`}
+                      className="rounded-2xl border border-slate-800 bg-slate-950 p-5"
+                    >
+
+                      <div className="flex flex-col gap-5 xl:flex-row xl:items-center xl:justify-between">
+
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-3">
+
+                            <div className="w-10 h-10 rounded-xl bg-slate-800 flex items-center justify-center">
+                              <Package className="w-5 h-5 text-slate-300" />
+                            </div>
+
+                            <div className="min-w-0">
+                              <h3 className="font-semibold text-white truncate">
+                                {getStoreName(
+                                  store
+                                )}
+                              </h3>
+
+                              {store.email && (
+                                <p className="text-xs text-slate-500 truncate">
+                                  {normalizeText(
+                                    store.email
+                                  )}
+                                </p>
+                              )}
+                            </div>
+
+                          </div>
+                        </div>
+
+                        <div className="flex flex-col sm:flex-row gap-3">
+
+                          <div>
+                            <label className="block text-xs text-slate-500 mb-1">
+                              Dia de fechamento
+                            </label>
+
+                            <select
+                              value={Number(
+                                store.closing_weekday ?? 6
+                              )}
+                              onChange={(event) =>
+                                saveStoreClosingDay(
+                                  storeId,
+                                  event.target.value
+                                )
+                              }
+                              disabled={isSaving}
+                              className="w-full sm:w-48 rounded-xl border border-slate-700 bg-slate-900 px-3 py-2.5 text-sm text-white outline-none focus:border-blue-500 disabled:opacity-50"
+                            >
+                              {billing.weekdays.map(
+                                (day, dayIndex) => (
+                                  <option
+                                    key={`weekday-${day.value}-${dayIndex}`}
+                                    value={day.value}
+                                  >
+                                    {day.label}
+                                  </option>
+                                )
+                              )}
+                            </select>
+                          </div>
+
+                          {isSaving && (
+                            <div className="flex items-end pb-2">
+                              <Loader2 className="w-5 h-5 animate-spin text-slate-400" />
+                            </div>
+                          )}
+
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-3 mt-5">
+
+                        <div className="rounded-xl border border-slate-800 bg-slate-900 p-4">
+                          <p className="text-xs text-slate-500">
+                            Ciclo atual
+                          </p>
+
+                          <p className="text-sm font-medium text-white mt-1">
+                            {cycle?.cycle_label ||
+                              "Calculando..."}
+                          </p>
+                        </div>
+
+                        <div className="rounded-xl border border-slate-800 bg-slate-900 p-4">
+                          <p className="text-xs text-slate-500">
+                            Dia escolhido
+                          </p>
+
+                          <p className="text-sm font-medium text-white mt-1">
+                            {getBillingDayLabel(
+                              store.closing_weekday
+                            )}
+                          </p>
+                        </div>
+
+                        <div className="rounded-xl border border-slate-800 bg-slate-900 p-4">
+                          <p className="text-xs text-slate-500">
+                            Entregas concluídas
+                          </p>
+
+                          <p className="text-xl font-bold text-white mt-1">
+                            {cycle?.total_deliveries ?? 0}
+                          </p>
+                        </div>
+
+                        <div className="rounded-xl border border-slate-800 bg-slate-900 p-4">
+                          <p className="text-xs text-slate-500">
+                            Taxa do ciclo
+                          </p>
+
+                          <p className="text-xl font-bold text-emerald-400 mt-1">
+                            {formatBRL(
+                              cycle?.total_fee || 0
+                            )}
+                          </p>
+                        </div>
+
+                        <div className="rounded-xl border border-slate-800 bg-slate-900 p-4">
+                          <p className="text-xs text-slate-500">
+                            Status
+                          </p>
+
+                          <span
+                            className={`inline-flex mt-2 items-center rounded-full border px-2.5 py-1 text-xs font-medium ${getBillingStatusClass(
+                              cycleStatus
+                            )}`}
+                          >
+                            {getStatusLabel(
+                              cycleStatus
+                            )}
+                          </span>
+                        </div>
+
+                      </div>
+
+                      <div className="flex flex-wrap gap-3 mt-5">
+
+                        {String(
+                          cycleStatus
+                        ).toLowerCase() ===
+                          "open" && (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              closeBilling(
+                                storeId
+                              )
+                            }
+                            disabled={
+                              isClosing ||
+                              closingStore !==
+                                null
+                            }
+                            className="inline-flex items-center justify-center gap-2 rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-500 disabled:opacity-50"
+                          >
+                            {isClosing ? (
+                              <Loader2 className="w-4 h-4 animate-spin" />
+                            ) : (
+                              <CheckCircle2 className="w-4 h-4" />
+                            )}
+
+                            Fechar ciclo
+                          </button>
+                        )}
+
+                        {String(
+                          cycleStatus
+                        ).toLowerCase() ===
+                          "closed" &&
+                          cycle?.id && (
+                            <button
+                              type="button"
+                              onClick={() =>
+                                payBilling(
+                                  cycle.id
+                                )
+                              }
+                              disabled={
+                                payingCycle !==
+                                  null
+                              }
+                              className="inline-flex items-center justify-center gap-2 rounded-xl bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-emerald-500 disabled:opacity-50"
+                            >
+                              {payingCycle ===
+                              cycle.id ? (
+                                <Loader2 className="w-4 h-4 animate-spin" />
+                              ) : (
+                                <CircleDollarSign className="w-4 h-4" />
+                              )}
+
+                              Marcar como pago
+                            </button>
+                          )}
+
+                        {String(
+                          cycleStatus
+                        ).toLowerCase() ===
+                          "paid" && (
+                          <div className="inline-flex items-center gap-2 rounded-xl border border-emerald-500/20 bg-emerald-500/10 px-4 py-2.5 text-sm text-emerald-400">
+                            <CheckCircle2 className="w-4 h-4" />
+                            Fechamento pago
+                          </div>
+                        )}
+
+                      </div>
+
+                      {cycle?.paid_at && (
+                        <p className="text-xs text-slate-500 mt-3">
+                          Pago em{" "}
+                          {formatDateTimeBR(
+                            cycle.paid_at
+                          )}
+                        </p>
+                      )}
+
+                      {cycle?.closed_at && (
+                        <p className="text-xs text-slate-500 mt-1">
+                          Fechado em{" "}
+                          {formatDateTimeBR(
+                            cycle.closed_at
+                          )}
+                        </p>
+                      )}
+
+                    </div>
+                  );
+                }
+              )}
+
+            </div>
+          )}
+        </section>
+
+        <section className="bg-slate-900 border border-slate-800 rounded-2xl p-6">
+
+          <div className="flex items-center gap-2 mb-5">
+            <Clock className="w-5 h-5 text-slate-300" />
+
+            <div>
+              <h2 className="text-lg font-semibold text-white">
+                Histórico de fechamentos
+              </h2>
+
+              <p className="text-sm text-slate-400 mt-1">
+                Todos os ciclos já fechados ou pagos.
+              </p>
+            </div>
+          </div>
+
+          {billing.history.length === 0 ? (
+            <div className="rounded-xl border border-dashed border-slate-700 p-8 text-center">
+              <p className="text-slate-400">
+                Nenhum fechamento histórico ainda.
+              </p>
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+
+                <thead>
+                  <tr className="border-b border-slate-800 text-left">
+                    <th className="px-4 py-3 text-slate-500 font-medium">
+                      Loja
+                    </th>
+                    <th className="px-4 py-3 text-slate-500 font-medium">
+                      Período
+                    </th>
+                    <th className="px-4 py-3 text-slate-500 font-medium">
+                      Fechamento
+                    </th>
+                    <th className="px-4 py-3 text-slate-500 font-medium">
+                      Entregas
+                    </th>
+                    <th className="px-4 py-3 text-slate-500 font-medium">
+                      Taxa
+                    </th>
+                    <th className="px-4 py-3 text-slate-500 font-medium">
+                      Status
+                    </th>
+                    <th className="px-4 py-3 text-slate-500 font-medium">
+                      Datas
+                    </th>
+                    <th className="px-4 py-3 text-slate-500 font-medium">
+                      Ação
+                    </th>
+                  </tr>
+                </thead>
+
+                <tbody>
+                  {billing.history.map(
+                    (cycle, index) => {
+                      const cycleId =
+                        String(
+                          cycle.id ||
+                            cycle._id ||
+                            `cycle-${index}`
+                        );
+
+                      const status =
+                        String(
+                          cycle.status ||
+                            "open"
+                        ).toLowerCase();
+
+                      return (
+                        <tr
+                          key={`history-${cycleId}-${index}`}
+                          className="border-b border-slate-800/70 last:border-0"
+                        >
+                          <td className="px-4 py-4 text-white font-medium">
+                            {normalizeText(
+                              cycle.store_name,
+                              "Loja"
+                            )}
+                          </td>
+
+                          <td className="px-4 py-4 text-slate-300">
+                            {normalizeText(
+                              cycle.cycle_label,
+                              `${formatDateBR(
+                                cycle.start_date
+                              )} até ${formatDateBR(
+                                cycle.end_date
+                              )}`
+                            )}
+                          </td>
+
+                          <td className="px-4 py-4 text-slate-400">
+                            {normalizeText(
+                              cycle.closing_weekday_label,
+                              getBillingDayLabel(
+                                cycle.closing_weekday
+                              )
+                            )}
+                          </td>
+
+                          <td className="px-4 py-4 text-slate-300">
+                            {Number(
+                              cycle.total_deliveries ||
+                                0
+                            )}
+                          </td>
+
+                          <td className="px-4 py-4 text-emerald-400 font-semibold">
+                            {formatBRL(
+                              cycle.total_fee ||
+                                0
+                            )}
+                          </td>
+
+                          <td className="px-4 py-4">
+                            <span
+                              className={`inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-medium ${getBillingStatusClass(
+                                status
+                              )}`}
+                            >
+                              {getStatusLabel(
+                                status
+                              )}
+                            </span>
+                          </td>
+
+                          <td className="px-4 py-4 text-xs text-slate-500">
+                            {cycle.closed_at && (
+                              <div>
+                                Fechado:{" "}
+                                {formatDateTimeBR(
+                                  cycle.closed_at
+                                )}
+                              </div>
+                            )}
+
+                            {cycle.paid_at && (
+                              <div className="mt-1">
+                                Pago:{" "}
+                                {formatDateTimeBR(
+                                  cycle.paid_at
+                                )}
+                              </div>
+                            )}
+                          </td>
+
+                          <td className="px-4 py-4">
+                            {status ===
+                              "closed" && (
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  payBilling(
+                                    cycleId
+                                  )
+                                }
+                                disabled={
+                                  payingCycle !==
+                                    null
+                                }
+                                className="inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-3 py-2 text-xs font-semibold text-white hover:bg-emerald-500 disabled:opacity-50"
+                              >
+                                {payingCycle ===
+                                cycleId ? (
+                                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                ) : (
+                                  <CircleDollarSign className="w-3.5 h-3.5" />
+                                )}
+
+                                Marcar pagamento
+                              </button>
+                            )}
+
+                            {status ===
+                              "paid" && (
+                              <span className="text-xs text-emerald-400">
+                                Pagamento confirmado
+                              </span>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    }
+                  )}
+                </tbody>
+
+              </table>
+            </div>
+          )}
+        </section>
+
+        <section className="bg-slate-900 border border-slate-800 rounded-2xl p-6">
+          <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between mb-6">
+            <div className="flex items-center gap-3">
+              <div className="w-11 h-11 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center">
+                <Users className="w-6 h-6 text-emerald-400" />
+              </div>
+              <div>
+                <h2 className="text-lg font-semibold text-white">
+                  Pagamentos dos entregadores
+                </h2>
+                <p className="text-sm text-slate-400 mt-1">
+                  Acompanhe as entregas concluídas, valores a pagar e confirme os pagamentos dos motoboys.
+                </p>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => loadBilling(true)}
+              disabled={billingLoading}
+              className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-700 bg-slate-950 px-4 py-2 text-sm text-slate-200 hover:bg-slate-800 disabled:opacity-50"
+            >
+              <RefreshCw
+                className={`w-4 h-4 ${billingLoading ? "animate-spin" : ""}`}
+              />
+              Atualizar entregadores
+            </button>
+          </div>
+
+          {billingLoading &&
+          billing.couriers.length === 0 &&
+          billing.courier_current_cycles.length === 0 ? (
+            <div className="flex items-center justify-center py-12 text-slate-400">
+              <Loader2 className="w-6 h-6 animate-spin mr-3" />
+              Carregando pagamentos dos entregadores...
+            </div>
+          ) : billing.couriers.length === 0 &&
+            billing.courier_current_cycles.length === 0 &&
+            billing.courier_history.length === 0 ? (
+            <div className="rounded-xl border border-dashed border-slate-700 p-8 text-center">
+              <Users className="w-9 h-9 mx-auto text-slate-600 mb-3" />
+              <p className="text-white font-medium">
+                Nenhum entregador encontrado.
+              </p>
+              <p className="text-sm text-slate-500 mt-2">
+                Verifique se os usuários dos motoboys estão cadastrados com o perfil de entregador.
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-6">
+              <div>
+                <div className="flex items-center justify-between mb-3">
+                  <h3 className="text-base font-semibold text-white">
+                    Período atual
+                  </h3>
+                  <span className="text-xs text-slate-500">
+                    {billing.couriers.length} entregador{billing.couriers.length === 1 ? "" : "es"}
+                  </span>
+                </div>
+
+                <div className="overflow-x-auto rounded-xl border border-slate-800">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b border-slate-800 bg-slate-950 text-left">
+                        <th className="px-4 py-3 text-slate-500 font-medium">Entregador</th>
+                        <th className="px-4 py-3 text-slate-500 font-medium">Período</th>
+                        <th className="px-4 py-3 text-slate-500 font-medium">Entregas</th>
+                        <th className="px-4 py-3 text-slate-500 font-medium">Valor a pagar</th>
+                        <th className="px-4 py-3 text-slate-500 font-medium">Status</th>
+                        <th className="px-4 py-3 text-slate-500 font-medium">Ação</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {billing.couriers.map((courier, index) => {
+                        const courierId = String(
+                          courier?.id || courier?._id || `courier-${index}`
+                        );
+                        const cycle =
+                          billing.courier_current_cycles.find(
+                            (item) =>
+                              String(item?.courier_id) === courierId
+                          ) || null;
+                        const status = String(cycle?.status || "open").toLowerCase();
+                        const amount = Number(
+                          cycle?.total_courier ??
+                            cycle?.total_to_pay ??
+                            cycle?.value_to_pay ??
+                            cycle?.total_amount ??
+                            cycle?.amount ??
+                            0
+                        );
+                        const deliveries = Number(cycle?.total_deliveries || 0);
+                        const period =
+                          cycle?.cycle_label ||
+                          `${formatDateBR(cycle?.period_start || cycle?.start_date)} até ${formatDateBR(cycle?.period_end || cycle?.end_date)}`;
+                        const cycleId = cycle?.id || cycle?._id || null;
+
+                        return (
+                          <tr
+                            key={`courier-current-${courierId}-${index}`}
+                            className="border-b border-slate-800/70 last:border-0"
+                          >
+                            <td className="px-4 py-4">
+                              <div className="font-semibold text-white">
+                                {normalizeText(courier?.name, "Entregador")}
+                              </div>
+                              {courier?.email && (
+                                <div className="text-xs text-slate-500 mt-1">
+                                  {courier.email}
+                                </div>
+                              )}
+                            </td>
+                            <td className="px-4 py-4 text-slate-300">
+                              {period}
+                            </td>
+                            <td className="px-4 py-4 text-slate-300 font-medium">
+                              {deliveries}
+                            </td>
+                            <td className="px-4 py-4 text-emerald-400 font-bold">
+                              {formatBRL(amount)}
+                            </td>
+                            <td className="px-4 py-4">
+                              <span
+                                className={`inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-medium ${getBillingStatusClass(status)}`}
+                              >
+                                {getStatusLabel(status)}
+                              </span>
+                            </td>
+                            <td className="px-4 py-4">
+                              <div className="flex flex-wrap gap-2">
+                                {status === "open" && (
+                                  <button
+                                    type="button"
+                                    onClick={() => closeCourierBilling(courierId)}
+                                    disabled={closingCourier !== null}
+                                    className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-3 py-2 text-xs font-semibold text-white hover:bg-blue-500 disabled:opacity-50"
+                                  >
+                                    {closingCourier === courierId ? (
+                                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                    ) : (
+                                      <Calendar className="w-3.5 h-3.5" />
+                                    )}
+                                    Fechar período
+                                  </button>
+                                )}
+
+                                {status === "closed" && cycleId && (
+                                  <button
+                                    type="button"
+                                    onClick={() => payCourierBilling(cycleId)}
+                                    disabled={payingCycle !== null}
+                                    className="inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-3 py-2 text-xs font-semibold text-white hover:bg-emerald-500 disabled:opacity-50"
+                                  >
+                                    {payingCycle === String(cycleId) ? (
+                                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                    ) : (
+                                      <CircleDollarSign className="w-3.5 h-3.5" />
+                                    )}
+                                    Confirmar pagamento
+                                  </button>
+                                )}
+
+                                {status === "paid" && (
+                                  <span className="inline-flex items-center gap-2 text-xs text-emerald-400">
+                                    <CheckCircle2 className="w-4 h-4" />
+                                    Pagamento confirmado
+                                  </span>
+                                )}
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
                 </div>
               </div>
-            ))}
-          </div>
-        </div>
-      </section>
 
-      <section className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-4 my-6" data-testid="ops-settings">
-        <div className="flex items-center justify-between flex-wrap gap-3">
-          <h3 className="font-bold text-lg text-white flex items-center space-x-2"><Clock className="w-5 h-5 text-orange-400" /><span>Horário de Funcionamento &amp; Modo Sábado</span></h3>
-          <label className="flex items-center space-x-2 bg-slate-950 px-4 py-2 rounded-xl border border-slate-800">
-            <input data-testid="ops-enabled" type="checkbox" checked={ops.enabled} onChange={(e) => saveOps({ enabled: e.target.checked })} className="w-4 h-4 accent-orange-500" />
-            <Power className={`w-4 h-4 ${ops.enabled ? "text-emerald-400" : "text-rose-400"}`} />
-            <span className="text-xs font-bold text-slate-300">{ops.enabled ? "Plataforma ativa" : "Plataforma DESATIVADA"}</span>
-          </label>
-        </div>
+              <div>
+                <h3 className="text-base font-semibold text-white mb-3">
+                  Histórico de pagamentos dos entregadores
+                </h3>
 
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <div className="bg-slate-950 border border-slate-800 p-4 rounded-xl space-y-3">
-            <p className="text-xs uppercase font-bold text-orange-400 tracking-wide">Dias da Semana Desativados</p>
-            <div className="flex flex-wrap gap-2">
-              {WEEKDAYS.map(w => {
-                const active = Array.isArray(ops?.disabled_weekdays) && ops.disabled_weekdays.includes(w.i);
-                return (
-                  <button key={w.i} data-testid={`weekday-${w.i}`} onClick={() => toggleWeekday(w.i)} className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition ${active ? "bg-rose-500/20 text-rose-400 border-rose-500/40" : "bg-slate-900 text-slate-400 border-slate-800 hover:border-slate-700"}`}>
-                    {w.label}
-                  </button>
-                );
-              })}
-            </div>
-            <p className="text-[10px] text-slate-500">Vermelho = sem atendimento nesse dia</p>
-          </div>
-
-          <div className="bg-slate-950 border border-slate-800 p-4 rounded-xl space-y-3">
-            <p className="text-xs uppercase font-bold text-orange-400 tracking-wide">Horário de Abertura / Fechamento</p>
-            <div className="flex items-center space-x-2">
-              <input data-testid="ops-open-time" type="time" value={ops.open_time} onChange={(e) => setOps({ ...ops, open_time: e.target.value })} onBlur={(e) => saveOps({ open_time: e.target.value })} className="bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-orange-500" />
-              <span className="text-slate-500">até</span>
-              <input data-testid="ops-close-time" type="time" value={ops.close_time} onChange={(e) => setOps({ ...ops, close_time: e.target.value })} onBlur={(e) => saveOps({ close_time: e.target.value })} className="bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-orange-500" />
-            </div>
-            <p className="text-[10px] text-slate-500">Fuso America/São Paulo (UTC-3)</p>
-          </div>
-
-          <div className="bg-slate-950 border border-slate-800 p-4 rounded-xl space-y-3">
-            <p className="text-xs uppercase font-bold text-orange-400 tracking-wide">Feriados</p>
-            <div className="flex items-center space-x-2">
-              <input data-testid="holiday-input" type="date" value={newHoliday} onChange={(e) => setNewHoliday(e.target.value)} className="flex-1 bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-orange-500" />
-              <button data-testid="add-holiday-btn" onClick={addHoliday} className="bg-orange-500 hover:bg-orange-400 text-slate-950 font-bold px-3 py-2 rounded-lg text-xs flex items-center space-x-1"><Plus className="w-3.5 h-3.5" /><span>Add</span></button>
-            </div>
-            <div className="flex flex-wrap gap-1.5 max-h-24 overflow-y-auto">
-              {(ops.holidays || []).length === 0 && <p className="text-[10px] text-slate-500">Nenhum feriado cadastrado.</p>}
-              {(ops.holidays || []).map(h => (
-                <span key={h} className="inline-flex items-center space-x-1 bg-rose-500/10 text-rose-400 border border-rose-500/30 text-[10px] font-bold px-2 py-0.5 rounded" data-testid={`holiday-${h}`}>
-                  <Calendar className="w-3 h-3" /><span>{h}</span>
-                  <button onClick={() => removeHoliday(h)} className="hover:text-white"><Trash2 className="w-3 h-3" /></button>
-                </span>
-              ))}
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <section className="bg-slate-900 border border-slate-800 rounded-2xl p-6 mb-6">
-        <h3 className="font-bold text-lg text-white mb-4 flex items-center space-x-2"><Users className="w-5 h-5 text-orange-400" /><span>Gestão de Usuários ({users.length})</span></h3>
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-sm">
-            <thead>
-              <tr className="border-b border-slate-800 text-xs text-slate-400 font-mono">
-                <th className="py-3 px-2">Nome</th>
-                <th className="py-3 px-2">Perfil</th>
-                <th className="py-3 px-2">E-mail</th>
-                <th className="py-3 px-2">Status</th>
-                <th className="py-3 px-2">Ações</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-800/60">
-              {users.map((u, index) => { 
-                const uid = u.id || u._id || u.email || index; 
-                return (
-                  <tr key={uid} className="hover:bg-slate-800/40" data-testid={`user-row-${uid}`}>
-                    <td className="py-3 px-2 font-semibold text-white">{u.name}</td>
-                    <td className="py-3 px-2"><span className="text-[10px] uppercase bg-slate-800 px-2 py-1 rounded text-orange-400 font-mono">{u.role}</span></td>
-                    <td className="py-3 px-2 text-slate-300">{u.email}</td>
-                    <td className="py-3 px-2">
-                      <span className={`text-[10px] px-2 py-0.5 rounded font-bold ${u.status === "active" || u.status === "Aprovado" ? "bg-emerald-500/20 text-emerald-400" : (u.status === "pending" || u.status === "Pendente") ? "bg-amber-500/20 text-amber-400" : "bg-rose-500/20 text-rose-400"}`}>
-                        {String(u.status || "").toUpperCase()}
-                      </span>
-                    </td>
-                    <td className="py-3 px-2">
-                      <div className="flex items-center space-x-2">
-                        {(u.status === "pending" || u.status === "Pendente") && <button data-testid={`approve-user-${uid}`} onClick={() => approveUser(u.email || uid)} className="bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold px-3 py-1 rounded">Aprovar</button>}
-                        {u.role !== "admin" && u.status !== "blocked" && u.status !== "Bloqueado" && <button data-testid={`block-user-${uid}`} onClick={() => patchUser(u.email || uid, { status: "blocked" }, "Usuário bloqueado")} className="bg-slate-800 hover:bg-rose-900/40 text-rose-400 border border-slate-700 text-xs px-3 py-1 rounded">Bloquear</button>}
-                        {(u.status === "blocked" || u.status === "Bloqueado") && <button onClick={() => patchUser(u.email || uid, { status: "active" }, "Usuário reativado")} className="bg-slate-800 hover:bg-emerald-900/40 text-emerald-400 border border-slate-700 text-xs px-3 py-1 rounded">Reativar</button>}
-                      </div>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      </section>
-
-      <section className="bg-slate-900 border border-slate-800 rounded-2xl p-6">
-        <h3 className="font-bold text-lg text-white mb-4 flex items-center space-x-2"><Headphones className="w-5 h-5 text-orange-400" /><span>Central de Chamados ({tickets.length})</span></h3>
-        {tickets.length === 0 ? <p className="text-sm text-slate-400">Nenhum chamado registrado.</p> : (
-          <div className="space-y-3">
-            {tickets.map(t => (
-              <div key={t.id} className="bg-slate-950 border border-slate-800 p-4 rounded-xl" data-testid={`ticket-${t.id}`}>
-                <div className="flex flex-wrap items-center justify-between gap-3">
-                  <div>
-                    <div className="flex items-center space-x-2">
-                      <span className="font-mono text-xs font-bold text-orange-400">{t.code}</span>
-                      <span className="text-[10px] uppercase bg-rose-500/20 text-rose-400 px-2 py-0.5 rounded font-bold">{t.priority}</span>
-                      <span className={`text-[10px] px-2 py-0.5 rounded font-bold ${t.status === "resolved" ? "bg-emerald-500/20 text-emerald-400" : "bg-amber-500/20 text-amber-400"}`}>{t.status.toUpperCase()}</span>
-                    </div>
-                    <p className="font-bold text-white text-sm mt-1">{t.subject}</p>
-                    <p className="text-xs text-slate-400">Aberto por: {t.opened_by_name} ({t.opened_by_role}){t.delivery_id ? ` · Entrega: ${t.delivery_id}` : ""}</p>
+                {billing.courier_history.length === 0 ? (
+                  <div className="rounded-xl border border-dashed border-slate-700 p-6 text-center text-sm text-slate-500">
+                    Nenhum pagamento de entregador fechado ainda.
                   </div>
-                  {t.status !== "resolved" && <button data-testid={`resolve-ticket-${t.id}`} onClick={() => resolveTicket(t.id)} className="bg-orange-500 hover:bg-orange-400 text-slate-950 font-bold px-4 py-2 rounded-xl text-xs">Resolver</button>}
-                </div>
-                {t.messages?.length > 0 && (
-                  <div className="mt-3 space-y-1 border-t border-slate-800 pt-3">
-                    {t.messages.map((m, i) => (
-                      <p key={i} className="text-xs text-slate-300"><b className="text-orange-400">{m.sender_name}:</b> {m.text}</p>
-                    ))}
+                ) : (
+                  <div className="overflow-x-auto rounded-xl border border-slate-800">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="border-b border-slate-800 bg-slate-950 text-left">
+                          <th className="px-4 py-3 text-slate-500 font-medium">Entregador</th>
+                          <th className="px-4 py-3 text-slate-500 font-medium">Período</th>
+                          <th className="px-4 py-3 text-slate-500 font-medium">Entregas</th>
+                          <th className="px-4 py-3 text-slate-500 font-medium">Valor a pagar</th>
+                          <th className="px-4 py-3 text-slate-500 font-medium">Status</th>
+                          <th className="px-4 py-3 text-slate-500 font-medium">Data</th>
+                          <th className="px-4 py-3 text-slate-500 font-medium">Ação</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {billing.courier_history.map((cycle, index) => {
+                          const cycleId = String(
+                            cycle?.id || cycle?._id || `courier-cycle-${index}`
+                          );
+                          const status = String(cycle?.status || "closed").toLowerCase();
+                          const amount = Number(
+                            cycle?.total_courier ??
+                              cycle?.total_to_pay ??
+                              cycle?.value_to_pay ??
+                              cycle?.total_amount ??
+                              cycle?.amount ??
+                              0
+                          );
+                          const deliveries = Number(cycle?.total_deliveries || 0);
+                          const period =
+                            cycle?.cycle_label ||
+                            `${formatDateBR(cycle?.period_start || cycle?.start_date)} até ${formatDateBR(cycle?.period_end || cycle?.end_date)}`;
+
+                          return (
+                            <tr
+                              key={`courier-history-${cycleId}-${index}`}
+                              className="border-b border-slate-800/70 last:border-0"
+                            >
+                              <td className="px-4 py-4 text-white font-semibold">
+                                {normalizeText(cycle?.courier_name, "Entregador")}
+                              </td>
+                              <td className="px-4 py-4 text-slate-300">
+                                {period}
+                              </td>
+                              <td className="px-4 py-4 text-slate-300">
+                                {deliveries}
+                              </td>
+                              <td className="px-4 py-4 text-emerald-400 font-bold">
+                                {formatBRL(amount)}
+                              </td>
+                              <td className="px-4 py-4">
+                                <span
+                                  className={`inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-medium ${getBillingStatusClass(status)}`}
+                                >
+                                  {getStatusLabel(status)}
+                                </span>
+                              </td>
+                              <td className="px-4 py-4 text-xs text-slate-500">
+                                {cycle?.paid_at ? (
+                                  <div>
+                                    Pago: {formatDateTimeBR(cycle.paid_at)}
+                                  </div>
+                                ) : cycle?.closed_at ? (
+                                  <div>
+                                    Fechado: {formatDateTimeBR(cycle.closed_at)}
+                                  </div>
+                                ) : (
+                                  "—"
+                                )}
+                              </td>
+                              <td className="px-4 py-4">
+                                {status === "closed" && (
+                                  <button
+                                    type="button"
+                                    onClick={() => payCourierBilling(cycleId)}
+                                    disabled={payingCycle !== null}
+                                    className="inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-3 py-2 text-xs font-semibold text-white hover:bg-emerald-500 disabled:opacity-50"
+                                  >
+                                    {payingCycle === cycleId ? (
+                                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                    ) : (
+                                      <CircleDollarSign className="w-3.5 h-3.5" />
+                                    )}
+                                    Confirmar pagamento
+                                  </button>
+                                )}
+                                {status === "paid" && (
+                                  <span className="inline-flex items-center gap-2 text-xs text-emerald-400">
+                                    <CheckCircle2 className="w-4 h-4" />
+                                    Pagamento confirmado
+                                  </span>
+                                )}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
                   </div>
                 )}
               </div>
-            ))}
+            </div>
+          )}
+        </section>
+
+        <section className="bg-slate-900 border border-slate-800 rounded-2xl p-6">
+          <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between mb-6">
+            <div>
+              <h2 className="text-lg font-semibold text-white flex items-center gap-2">
+                <DollarSign className="w-5 h-5 text-emerald-400" />
+                Faturamento por período
+              </h2>
+              <p className="text-sm text-slate-400 mt-1">
+                Consulte quanto cada loja faturou e quanto cada entregador recebeu em qualquer período.
+              </p>
+            </div>
+
+            <div className="flex flex-col sm:flex-row gap-3">
+              <div>
+                <label className="block text-xs text-slate-500 mb-1">Data inicial</label>
+                <input
+                  type="date"
+                  value={periodStart}
+                  onChange={(event) => setPeriodStart(event.target.value)}
+                  className="rounded-xl border border-slate-700 bg-slate-950 px-3 py-2.5 text-sm text-white outline-none focus:border-emerald-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs text-slate-500 mb-1">Data final</label>
+                <input
+                  type="date"
+                  value={periodEnd}
+                  onChange={(event) => setPeriodEnd(event.target.value)}
+                  className="rounded-xl border border-slate-700 bg-slate-950 px-3 py-2.5 text-sm text-white outline-none focus:border-emerald-500"
+                />
+              </div>
+
+              <button
+                type="button"
+                onClick={loadPeriodBilling}
+                disabled={periodBillingLoading}
+                className="inline-flex items-center justify-center gap-2 rounded-xl bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-emerald-500 disabled:opacity-50"
+              >
+                {periodBillingLoading ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <RefreshCw className="w-4 h-4" />
+                )}
+                Consultar período
+              </button>
+            </div>
           </div>
-        )}
-      </section>
+
+          {!periodBilling ? (
+            <div className="rounded-xl border border-dashed border-slate-700 p-8 text-center">
+              <p className="text-slate-400">
+                Selecione o período e clique em <strong className="text-slate-300">Consultar período</strong>.
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-6">
+              <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+                <div className="rounded-xl border border-slate-800 bg-slate-950 p-4">
+                  <p className="text-xs text-slate-500">Entregas das lojas</p>
+                  <p className="text-xl font-bold text-white mt-1">
+                    {Number(periodBilling?.totals?.store_deliveries || 0)}
+                  </p>
+                </div>
+                <div className="rounded-xl border border-slate-800 bg-slate-950 p-4">
+                  <p className="text-xs text-slate-500">Faturamento das lojas</p>
+                  <p className="text-xl font-bold text-emerald-400 mt-1">
+                    {formatBRL(Number(periodBilling?.totals?.store_billing || 0))}
+                  </p>
+                </div>
+                <div className="rounded-xl border border-slate-800 bg-slate-950 p-4">
+                  <p className="text-xs text-slate-500">Faturamento bruto entregadores</p>
+                  <p className="text-xl font-bold text-white mt-1">
+                    {formatBRL(Number(periodBilling?.totals?.courier_gross || 0))}
+                  </p>
+                </div>
+                <div className="rounded-xl border border-slate-800 bg-slate-950 p-4">
+                  <p className="text-xs text-slate-500">Total a pagar aos entregadores</p>
+                  <p className="text-xl font-bold text-emerald-400 mt-1">
+                    {formatBRL(Number(periodBilling?.totals?.courier_to_pay || 0))}
+                  </p>
+                </div>
+              </div>
+
+              <div>
+                <h3 className="text-base font-semibold text-white mb-3">Faturamento das lojas</h3>
+                {Array.isArray(periodBilling?.stores) && periodBilling.stores.length > 0 ? (
+                  <div className="overflow-x-auto rounded-xl border border-slate-800">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="border-b border-slate-800 bg-slate-950 text-left">
+                          <th className="px-4 py-3 text-slate-500 font-medium">Loja</th>
+                          <th className="px-4 py-3 text-slate-500 font-medium">Entregas</th>
+                          <th className="px-4 py-3 text-slate-500 font-medium">Faturamento</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {periodBilling.stores.map((item, index) => (
+                          <tr key={`period-store-${item?.id || index}`} className="border-b border-slate-800/70 last:border-0">
+                            <td className="px-4 py-4 text-white font-semibold">{normalizeText(item?.name, "Loja")}</td>
+                            <td className="px-4 py-4 text-slate-300">{Number(item?.total_deliveries || 0)}</td>
+                            <td className="px-4 py-4 text-emerald-400 font-bold">{formatBRL(Number(item?.total_fee ?? item?.total_billing ?? 0))}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : (
+                  <div className="rounded-xl border border-dashed border-slate-700 p-6 text-center text-sm text-slate-500">Nenhuma loja com entregas no período.</div>
+                )}
+              </div>
+
+              <div>
+                <h3 className="text-base font-semibold text-white mb-3">Faturamento dos entregadores</h3>
+                {Array.isArray(periodBilling?.couriers) && periodBilling.couriers.length > 0 ? (
+                  <div className="overflow-x-auto rounded-xl border border-slate-800">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="border-b border-slate-800 bg-slate-950 text-left">
+                          <th className="px-4 py-3 text-slate-500 font-medium">Entregador</th>
+                          <th className="px-4 py-3 text-slate-500 font-medium">Entregas</th>
+                          <th className="px-4 py-3 text-slate-500 font-medium">Bruto</th>
+                          <th className="px-4 py-3 text-slate-500 font-medium">Taxa plataforma</th>
+                          <th className="px-4 py-3 text-slate-500 font-medium">Valor a pagar</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {periodBilling.couriers.map((item, index) => (
+                          <tr key={`period-courier-${item?.id || index}`} className="border-b border-slate-800/70 last:border-0">
+                            <td className="px-4 py-4 text-white font-semibold">{normalizeText(item?.name, "Entregador")}</td>
+                            <td className="px-4 py-4 text-slate-300">{Number(item?.total_deliveries || 0)}</td>
+                            <td className="px-4 py-4 text-slate-300">{formatBRL(Number(item?.total_gross || 0))}</td>
+                            <td className="px-4 py-4 text-slate-300">{formatBRL(Number(item?.total_platform_fee || 0))}</td>
+                            <td className="px-4 py-4 text-emerald-400 font-bold">{formatBRL(Number(item?.total_courier ?? item?.total_to_pay ?? 0))}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : (
+                  <div className="rounded-xl border border-dashed border-slate-700 p-6 text-center text-sm text-slate-500">Nenhum entregador com entregas no período.</div>
+                )}
+              </div>
+            </div>
+          )}
+        </section>
+
+        <section className="bg-slate-900 border border-slate-800 rounded-2xl p-6">
+
+          <div className="flex items-center gap-2 mb-5">
+            <DollarSign className="w-5 h-5 text-emerald-400" />
+
+            <div>
+              <h2 className="text-lg font-semibold text-white">
+                Detalhamento das entregas
+              </h2>
+
+              <p className="text-sm text-slate-400 mt-1">
+                Visão diária das taxas geradas pelas entregas concluídas.
+              </p>
+            </div>
+          </div>
+
+          {!Array.isArray(
+            stats?.store_fees_details
+          ) ||
+          stats.store_fees_details.length ===
+            0 ? (
+            <div className="rounded-xl border border-dashed border-slate-700 p-8 text-center">
+              <p className="text-slate-400">
+                Nenhuma entrega concluída encontrada.
+              </p>
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+
+                <thead>
+                  <tr className="border-b border-slate-800 text-left">
+                    <th className="px-4 py-3 text-slate-500 font-medium">
+                      Loja
+                    </th>
+                    <th className="px-4 py-3 text-slate-500 font-medium">
+                      Data
+                    </th>
+                    <th className="px-4 py-3 text-slate-500 font-medium">
+                      Entregas concluídas
+                    </th>
+                    <th className="px-4 py-3 text-slate-500 font-medium">
+                      Taxa total
+                    </th>
+                  </tr>
+                </thead>
+
+                <tbody>
+                  {stats.store_fees_details.map(
+                    (item, index) => (
+                      <tr
+                        key={`fee-${normalizeText(
+                          item.store_name,
+                          "store"
+                        )}-${item.date || "date"}-${index}`}
+                        className="border-b border-slate-800/70 last:border-0"
+                      >
+                        <td className="px-4 py-4 text-white">
+                          {normalizeText(
+                            item.store_name,
+                            "Loja"
+                          )}
+                        </td>
+
+                        <td className="px-4 py-4 text-slate-300">
+                          {formatDateBR(
+                            item.date
+                          )}
+                        </td>
+
+                        <td className="px-4 py-4 text-slate-300">
+                          {Number(
+                            item.deliveries_count ||
+                              0
+                          )}{" "}
+                          entregas
+                        </td>
+
+                        <td className="px-4 py-4 text-emerald-400 font-semibold">
+                          {formatBRL(
+                            item.total_fee ||
+                              0
+                          )}
+                        </td>
+                      </tr>
+                    )
+                  )}
+                </tbody>
+
+              </table>
+            </div>
+          )}
+        </section>
+
+        <section className="bg-slate-900 border border-slate-800 rounded-2xl p-6">
+
+          <div className="flex items-center justify-between mb-5">
+
+            <div>
+              <h2 className="text-lg font-semibold text-white">
+                Conferência de comprovantes
+              </h2>
+
+              <p className="text-sm text-slate-400 mt-1">
+                Analise os comprovantes enviados pelas lojas.
+              </p>
+            </div>
+
+            <span className="rounded-full border border-slate-700 bg-slate-950 px-3 py-1 text-xs text-slate-400">
+              {underReviewStatements.length} em análise
+            </span>
+
+          </div>
+
+          {statements.length === 0 ? (
+            <div className="rounded-xl border border-dashed border-slate-700 p-8 text-center">
+              <p className="text-slate-400">
+                Nenhum comprovante encontrado.
+              </p>
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+
+                <thead>
+                  <tr className="border-b border-slate-800 text-left">
+                    <th className="px-4 py-3 text-slate-500 font-medium">
+                      Loja
+                    </th>
+                    <th className="px-4 py-3 text-slate-500 font-medium">
+                      Ciclo
+                    </th>
+                    <th className="px-4 py-3 text-slate-500 font-medium">
+                      Entregas
+                    </th>
+                    <th className="px-4 py-3 text-slate-500 font-medium">
+                      Valor
+                    </th>
+                    <th className="px-4 py-3 text-slate-500 font-medium">
+                      Status
+                    </th>
+                    <th className="px-4 py-3 text-slate-500 font-medium">
+                      Comprovante
+                    </th>
+                    <th className="px-4 py-3 text-slate-500 font-medium">
+                      Ação
+                    </th>
+                  </tr>
+                </thead>
+
+                <tbody>
+                  {statements.map(
+                    (statement, index) => {
+                      const statementId =
+                        String(
+                          statement.id ||
+                            statement._id ||
+                            `statement-${index}`
+                        );
+
+                      const status =
+                        String(
+                          statement.status ||
+                            ""
+                        ).toLowerCase();
+
+                      const proofPath =
+                        statement.proof_path;
+
+                      const proofUrl =
+                        proofPath
+                          ? `${API_BASE}/api/files?path=${encodeURIComponent(
+                              proofPath
+                            )}`
+                          : null;
+
+                      return (
+                        <tr
+                          key={`statement-${statementId}-${index}`}
+                          className="border-b border-slate-800/70 last:border-0"
+                        >
+                          <td className="px-4 py-4 text-white font-medium">
+                            {normalizeText(
+                              statement.store_name,
+                              "Loja"
+                            )}
+                          </td>
+
+                          <td className="px-4 py-4 text-slate-300">
+                            {normalizeText(
+                              statement.cycle_label,
+                              "-"
+                            )}
+                          </td>
+
+                          <td className="px-4 py-4 text-slate-300">
+                            {Number(
+                              statement.total_deliveries ||
+                                0
+                            )}
+                          </td>
+
+                          <td className="px-4 py-4 text-emerald-400 font-semibold">
+                            {formatBRL(
+                              statement.total_gross ||
+                                0
+                            )}
+                          </td>
+
+                          <td className="px-4 py-4">
+                            <span
+                              className={`inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-medium ${getUserStatusClass(
+                                status
+                              )}`}
+                            >
+                              {getStatusLabel(
+                                status
+                              )}
+                            </span>
+                          </td>
+
+                          <td className="px-4 py-4">
+                            {proofUrl ? (
+                              <a
+                                href={proofUrl}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="inline-flex items-center gap-2 text-blue-400 hover:text-blue-300 text-xs"
+                              >
+                                <ExternalLink className="w-3.5 h-3.5" />
+                                Abrir comprovante
+                              </a>
+                            ) : (
+                              <span className="text-xs text-slate-600">
+                                Sem arquivo
+                              </span>
+                            )}
+                          </td>
+
+                          <td className="px-4 py-4">
+                            {status ===
+                              "under_review" && (
+                              <div className="flex gap-2">
+
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    approveStmt(
+                                      statementId,
+                                      true
+                                    )
+                                  }
+                                  className="rounded-lg bg-emerald-600 px-3 py-2 text-xs font-semibold text-white hover:bg-emerald-500"
+                                >
+                                  Aprovar
+                                </button>
+
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    approveStmt(
+                                      statementId,
+                                      false
+                                    )
+                                  }
+                                  className="rounded-lg bg-red-600 px-3 py-2 text-xs font-semibold text-white hover:bg-red-500"
+                                >
+                                  Rejeitar
+                                </button>
+
+                              </div>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    }
+                  )}
+                </tbody>
+
+              </table>
+            </div>
+          )}
+        </section>
+
+        <section className="bg-slate-900 border border-slate-800 rounded-2xl p-6">
+
+          <div className="flex items-center gap-2 mb-5">
+
+            <DollarSign className="w-5 h-5 text-emerald-400" />
+
+            <div>
+              <h2 className="text-lg font-semibold text-white">
+                Dados bancários
+              </h2>
+
+              <p className="text-sm text-slate-400 mt-1">
+                Informações utilizadas pelo sistema para recebimentos.
+              </p>
+            </div>
+
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+
+            <div>
+              <label className="block text-xs text-slate-500 mb-1.5">
+                Banco
+              </label>
+
+              <input
+                value={bank.bank}
+                onChange={(event) =>
+                  setBank((previous) => ({
+                    ...previous,
+                    bank: event.target.value,
+                  }))
+                }
+                className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2.5 text-sm text-white outline-none focus:border-blue-500"
+                placeholder="Banco"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs text-slate-500 mb-1.5">
+                Agência
+              </label>
+
+              <input
+                value={bank.agency}
+                onChange={(event) =>
+                  setBank((previous) => ({
+                    ...previous,
+                    agency: event.target.value,
+                  }))
+                }
+                className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2.5 text-sm text-white outline-none focus:border-blue-500"
+                placeholder="Agência"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs text-slate-500 mb-1.5">
+                Conta
+              </label>
+
+              <input
+                value={bank.account}
+                onChange={(event) =>
+                  setBank((previous) => ({
+                    ...previous,
+                    account: event.target.value,
+                  }))
+                }
+                className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2.5 text-sm text-white outline-none focus:border-blue-500"
+                placeholder="Conta"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs text-slate-500 mb-1.5">
+                Chave Pix
+              </label>
+
+              <input
+                value={bank.pix_key}
+                onChange={(event) =>
+                  setBank((previous) => ({
+                    ...previous,
+                    pix_key: event.target.value,
+                  }))
+                }
+                className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2.5 text-sm text-white outline-none focus:border-blue-500"
+                placeholder="Chave Pix"
+              />
+            </div>
+
+          </div>
+
+          <div className="mt-5">
+            <button
+              type="button"
+              onClick={saveBank}
+              disabled={savingBank}
+              className="inline-flex items-center gap-2 rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-500 disabled:opacity-50"
+            >
+              {savingBank ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <Save className="w-4 h-4" />
+              )}
+
+              Salvar dados bancários
+            </button>
+          </div>
+
+        </section>
+
+        <section className="bg-slate-900 border border-slate-800 rounded-2xl p-6">
+
+          <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between mb-6">
+
+            <div className="flex items-center gap-3">
+
+              <div className="w-11 h-11 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center">
+                <CreditCard className="w-6 h-6 text-emerald-400" />
+              </div>
+
+              <div>
+                <h2 className="text-lg font-semibold text-white">
+                  Contas dos entregadores
+                </h2>
+
+                <p className="text-sm text-slate-400 mt-1">
+                  Consulte os dados bancários e PIX cadastrados pelos motoboys.
+                </p>
+              </div>
+
+            </div>
+
+            <div className="rounded-full border border-slate-700 bg-slate-950 px-3 py-1.5 text-xs text-slate-400">
+              {couriers.length} entregador
+              {couriers.length === 1 ? "" : "es"}
+            </div>
+
+          </div>
+
+          {couriers.length === 0 ? (
+            <div className="rounded-xl border border-dashed border-slate-700 p-8 text-center">
+
+              <Users className="w-8 h-8 mx-auto text-slate-600 mb-3" />
+
+              <p className="text-slate-400">
+                Nenhum entregador cadastrado.
+              </p>
+
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+
+              <table className="w-full text-sm">
+
+                <thead>
+                  <tr className="border-b border-slate-800 text-left">
+
+                    <th className="px-4 py-3 text-slate-500 font-medium">
+                      Entregador
+                    </th>
+
+                    <th className="px-4 py-3 text-slate-500 font-medium">
+                      Telefone
+                    </th>
+
+                    <th className="px-4 py-3 text-slate-500 font-medium">
+                      Status
+                    </th>
+
+                    <th className="px-4 py-3 text-slate-500 font-medium">
+                      Conta
+                    </th>
+
+                    <th className="px-4 py-3 text-slate-500 font-medium">
+                      PIX
+                    </th>
+
+                    <th className="px-4 py-3 text-slate-500 font-medium">
+                      Ação
+                    </th>
+
+                  </tr>
+                </thead>
+
+                <tbody>
+
+                  {couriers.map(
+                    (courier, index) => {
+
+                      const courierId =
+                        getUserId(courier) ||
+                        `courier-${index}`;
+
+                      const status =
+                        String(
+                          courier.status ||
+                            "pending"
+                        ).toLowerCase();
+
+                      const account =
+                        courier.payment_account ||
+                        {};
+
+                      const registered =
+                        hasPaymentAccount(
+                          courier
+                        );
+
+                      return (
+                        <tr
+                          key={`courier-${courierId}-${index}`}
+                          className="border-b border-slate-800/70 last:border-0"
+                        >
+
+                          <td className="px-4 py-4">
+
+                            <div className="flex items-center gap-3">
+
+                              <div className="w-9 h-9 rounded-lg bg-slate-800 flex items-center justify-center">
+                                <Users className="w-4 h-4 text-slate-400" />
+                              </div>
+
+                              <div>
+                                <p className="text-white font-medium">
+                                  {normalizeText(
+                                    courier.name,
+                                    "Entregador"
+                                  )}
+                                </p>
+
+                                {courier.email && (
+                                  <p className="text-xs text-slate-500 mt-1">
+                                    {normalizeText(
+                                      courier.email
+                                    )}
+                                  </p>
+                                )}
+                              </div>
+
+                            </div>
+
+                          </td>
+
+                          <td className="px-4 py-4 text-slate-300">
+                            {normalizeText(
+                              courier.phone,
+                              "-"
+                            )}
+                          </td>
+
+                          <td className="px-4 py-4">
+
+                            <span
+                              className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-medium ${getUserStatusClass(
+                                status
+                              )}`}
+                            >
+                              {getStatusLabel(
+                                status
+                              )}
+                            </span>
+
+                          </td>
+
+                          <td className="px-4 py-4">
+
+                            {registered ? (
+                              <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-500/20 bg-emerald-500/10 px-2.5 py-1 text-xs font-medium text-emerald-400">
+                                <CheckCircle2 className="w-3.5 h-3.5" />
+                                Cadastrada
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center rounded-full border border-amber-500/20 bg-amber-500/10 px-2.5 py-1 text-xs font-medium text-amber-400">
+                                Não cadastrada
+                              </span>
+                            )}
+
+                          </td>
+
+                          <td className="px-4 py-4">
+
+                            {registered ? (
+                              <div>
+
+                                <p className="text-slate-300 text-xs">
+                                  {getPixTypeLabel(
+                                    account.pix_key_type
+                                  )}
+                                </p>
+
+                                <p className="text-slate-500 text-xs mt-1 max-w-[220px] truncate">
+                                  {normalizeText(
+                                    account.pix_key,
+                                    "-"
+                                  )}
+                                </p>
+
+                              </div>
+                            ) : (
+                              <span className="text-xs text-slate-600">
+                                -
+                              </span>
+                            )}
+
+                          </td>
+
+                          <td className="px-4 py-4">
+
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setSelectedCourier(
+                                  courier
+                                )
+                              }
+                              className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-3 py-2 text-xs font-semibold text-white hover:bg-blue-500"
+                            >
+                              <Eye className="w-3.5 h-3.5" />
+                              Ver conta
+                            </button>
+
+                          </td>
+
+                        </tr>
+                      );
+                    }
+                  )}
+
+                </tbody>
+
+              </table>
+            </div>
+          )}
+
+        </section>
+
+        <section className="bg-slate-900 border border-slate-800 rounded-2xl p-6">
+
+          <div className="flex items-center gap-2 mb-5">
+
+            <Power className="w-5 h-5 text-blue-400" />
+
+            <div>
+              <h2 className="text-lg font-semibold text-white">
+                Operações da plataforma
+              </h2>
+
+              <p className="text-sm text-slate-400 mt-1">
+                Configure os horários gerais de funcionamento.
+              </p>
+            </div>
+
+          </div>
+
+          <div className="flex flex-col gap-5">
+
+            <div className="flex items-center justify-between rounded-xl border border-slate-800 bg-slate-950 p-4">
+
+              <div>
+                <p className="text-sm font-medium text-white">
+                  Plataforma ativa
+                </p>
+
+                <p className="text-xs text-slate-500 mt-1">
+                  Permite o funcionamento normal do sistema.
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={() =>
+                  saveOps({
+                    active:
+                      !Boolean(
+                        ops.active
+                      ),
+                  })
+                }
+                disabled={savingOps}
+                className={`relative w-12 h-7 rounded-full transition ${
+                  ops.active
+                    ? "bg-emerald-600"
+                    : "bg-slate-700"
+                }`}
+                aria-label="Alternar plataforma"
+              >
+                <span
+                  className={`absolute top-1 w-5 h-5 rounded-full bg-white transition ${
+                    ops.active
+                      ? "left-6"
+                      : "left-1"
+                  }`}
+                />
+              </button>
+
+            </div>
+
+            <div>
+
+              <p className="text-sm font-medium text-white mb-3">
+                Dias sem operação
+              </p>
+
+              <div className="flex flex-wrap gap-2">
+
+                {WEEKDAYS.map(
+                  (day, index) => {
+                    const disabled =
+                      Array.isArray(
+                        ops.disabled_days
+                      ) &&
+                      ops.disabled_days.includes(
+                        day.i
+                      );
+
+                    return (
+                      <button
+                        key={`weekday-button-${day.i}-${index}`}
+                        type="button"
+                        onClick={() =>
+                          toggleWeekday(
+                            day.i
+                          )
+                        }
+                        disabled={savingOps}
+                        className={`rounded-xl border px-3 py-2 text-sm transition disabled:opacity-50 ${
+                          disabled
+                            ? "border-red-500/30 bg-red-500/10 text-red-400"
+                            : "border-slate-700 bg-slate-950 text-slate-300 hover:bg-slate-800"
+                        }`}
+                      >
+                        {day.label}
+                      </button>
+                    );
+                  }
+                )}
+
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+
+              <div>
+                <label className="block text-xs text-slate-500 mb-1.5">
+                  Horário de abertura
+                </label>
+
+                <input
+                  type="time"
+                  value={
+                    ops.open_time ||
+                    "00:00"
+                  }
+                  onChange={(event) =>
+                    setOps(
+                      (previous) => ({
+                        ...previous,
+                        open_time:
+                          event.target.value,
+                      })
+                    )
+                  }
+                  onBlur={() =>
+                    saveOps({
+                      open_time:
+                        ops.open_time,
+                    })
+                  }
+                  className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2.5 text-sm text-white"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs text-slate-500 mb-1.5">
+                  Horário de fechamento
+                </label>
+
+                <input
+                  type="time"
+                  value={
+                    ops.close_time ||
+                    "23:59"
+                  }
+                  onChange={(event) =>
+                    setOps(
+                      (previous) => ({
+                        ...previous,
+                        close_time:
+                          event.target.value,
+                      })
+                    )
+                  }
+                  onBlur={() =>
+                    saveOps({
+                      close_time:
+                        ops.close_time,
+                    })
+                  }
+                  className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2.5 text-sm text-white"
+                />
+              </div>
+
+            </div>
+
+            <div>
+
+              <p className="text-sm font-medium text-white mb-3">
+                Feriados
+              </p>
+
+              <div className="flex flex-col sm:flex-row gap-2 mb-3">
+
+                <input
+                  type="date"
+                  value={newHoliday}
+                  onChange={(event) =>
+                    setNewHoliday(
+                      event.target.value
+                    )
+                  }
+                  className="flex-1 rounded-xl border border-slate-700 bg-slate-950 px-3 py-2.5 text-sm text-white"
+                />
+
+                <button
+                  type="button"
+                  onClick={addHoliday}
+                  disabled={savingOps}
+                  className="inline-flex items-center justify-center gap-2 rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-500 disabled:opacity-50"
+                >
+                  <Plus className="w-4 h-4" />
+                  Adicionar
+                </button>
+
+              </div>
+
+              <div className="flex flex-wrap gap-2">
+
+                {(Array.isArray(
+                  ops.holidays
+                )
+                  ? ops.holidays
+                  : []
+                ).map(
+                  (holiday, index) => (
+                    <div
+                      key={`holiday-${holiday}-${index}`}
+                      className="inline-flex items-center gap-2 rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-slate-300"
+                    >
+                      {formatDateBR(
+                        holiday
+                      )}
+
+                      <button
+                        type="button"
+                        onClick={() =>
+                          removeHoliday(
+                            holiday
+                          )
+                        }
+                        disabled={savingOps}
+                        className="text-red-400 hover:text-red-300 disabled:opacity-50"
+                        aria-label={`Remover feriado ${holiday}`}
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  )
+                )}
+
+              </div>
+            </div>
+
+          </div>
+        </section>
+
+        <section className="bg-slate-900 border border-slate-800 rounded-2xl p-6">
+
+          <div className="flex items-center gap-2 mb-5">
+
+            <Users className="w-5 h-5 text-blue-400" />
+
+            <div>
+              <h2 className="text-lg font-semibold text-white">
+                Usuários
+              </h2>
+
+              <p className="text-sm text-slate-400 mt-1">
+                Gerencie lojas, motoboys e demais usuários.
+              </p>
+            </div>
+
+          </div>
+
+          {users.length === 0 ? (
+            <div className="rounded-xl border border-dashed border-slate-700 p-8 text-center">
+              <p className="text-slate-400">
+                Nenhum usuário encontrado.
+              </p>
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+
+              <table className="w-full text-sm">
+
+                <thead>
+                  <tr className="border-b border-slate-800 text-left">
+
+                    <th className="px-4 py-3 text-slate-500 font-medium">
+                      Nome
+                    </th>
+
+                    <th className="px-4 py-3 text-slate-500 font-medium">
+                      E-mail
+                    </th>
+
+                    <th className="px-4 py-3 text-slate-500 font-medium">
+                      Perfil
+                    </th>
+
+                    <th className="px-4 py-3 text-slate-500 font-medium">
+                      Status
+                    </th>
+
+                    <th className="px-4 py-3 text-slate-500 font-medium">
+                      Ações
+                    </th>
+
+                  </tr>
+                </thead>
+
+                <tbody>
+
+                  {users.map(
+                    (user, index) => {
+
+                      const userId =
+                        getUserId(
+                          user
+                        ) ||
+                        `user-${index}`;
+
+                      const status =
+                        String(
+                          user.status ||
+                            "pending"
+                        ).toLowerCase();
+
+                      const isAdmin =
+                        String(
+                          user.role || ""
+                        ).toLowerCase() ===
+                        "admin";
+
+                      return (
+                        <tr
+                          key={`user-${userId}-${index}`}
+                          className="border-b border-slate-800/70 last:border-0"
+                        >
+
+                          <td className="px-4 py-4">
+
+                            <div className="text-white font-medium">
+                              {normalizeText(
+                                user.name,
+                                "Usuário"
+                              )}
+                            </div>
+
+                            {user.phone && (
+                              <div className="text-xs text-slate-500 mt-1">
+                                {normalizeText(
+                                  user.phone
+                                )}
+                              </div>
+                            )}
+
+                          </td>
+
+                          <td className="px-4 py-4 text-slate-300">
+                            {normalizeText(
+                              user.email,
+                              "-"
+                            )}
+                          </td>
+
+                          <td className="px-4 py-4">
+
+                            <span className="inline-flex rounded-full border border-slate-700 bg-slate-950 px-2.5 py-1 text-xs text-slate-300">
+                              {getRoleLabel(
+                                user.role
+                              )}
+                            </span>
+
+                          </td>
+
+                          <td className="px-4 py-4">
+
+                            <span
+                              className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-medium ${getUserStatusClass(
+                                status
+                              )}`}
+                            >
+                              {getStatusLabel(
+                                status
+                              )}
+                            </span>
+
+                          </td>
+
+                          <td className="px-4 py-4">
+
+                            {!isAdmin && (
+                              <div className="flex flex-wrap gap-2">
+
+                                {status !==
+                                  "active" &&
+                                  status !==
+                                    "approved" && (
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        approveUser(
+                                          userId
+                                        )
+                                      }
+                                      className="rounded-lg bg-emerald-600 px-3 py-2 text-xs font-semibold text-white hover:bg-emerald-500"
+                                    >
+                                      Aprovar
+                                    </button>
+                                  )}
+
+                                {(status ===
+                                  "active" ||
+                                  status ===
+                                    "approved") && (
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      patchUser(
+                                        userId,
+                                        {
+                                          status:
+                                            "blocked",
+                                        },
+                                        "Usuário bloqueado"
+                                      )
+                                    }
+                                    className="rounded-lg bg-red-600 px-3 py-2 text-xs font-semibold text-white hover:bg-red-500"
+                                  >
+                                    Bloquear
+                                  </button>
+                                )}
+
+                                {status ===
+                                  "blocked" && (
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      patchUser(
+                                        userId,
+                                        {
+                                          status:
+                                            "active",
+                                        },
+                                        "Usuário reativado"
+                                      )
+                                    }
+                                    className="rounded-lg bg-blue-600 px-3 py-2 text-xs font-semibold text-white hover:bg-blue-500"
+                                  >
+                                    Reativar
+                                  </button>
+                                )}
+
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    deleteUser(
+                                      userId,
+                                      user
+                                    )
+                                  }
+                                  className="inline-flex items-center gap-1.5 rounded-lg bg-red-700 px-3 py-2 text-xs font-semibold text-white hover:bg-red-600"
+                                  title="Excluir conta"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                  Excluir
+                                </button>
+
+                              </div>
+                            )}
+
+                          </td>
+
+                        </tr>
+                      );
+                    }
+                  )}
+
+                </tbody>
+
+              </table>
+            </div>
+          )}
+
+        </section>
+
+        <section className="bg-slate-900 border border-slate-800 rounded-2xl p-6">
+
+          <div className="flex items-center justify-between mb-5">
+
+            <div className="flex items-center gap-2">
+
+              <Headphones className="w-5 h-5 text-orange-400" />
+
+              <div>
+                <h2 className="text-lg font-semibold text-white">
+                  Suporte
+                </h2>
+
+                <p className="text-sm text-slate-400 mt-1">
+                  Chamados enviados ao suporte administrativo.
+                </p>
+              </div>
+
+            </div>
+
+            <span className="rounded-full border border-slate-700 bg-slate-950 px-3 py-1 text-xs text-slate-400">
+              {openTickets.length} abertos
+            </span>
+
+          </div>
+
+          {tickets.length === 0 ? (
+            <div className="rounded-xl border border-dashed border-slate-700 p-8 text-center">
+              <p className="text-slate-400">
+                Nenhum chamado encontrado.
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-3">
+
+              {tickets.map(
+                (ticket, index) => {
+
+                  const ticketId =
+                    String(
+                      ticket.id ||
+                        ticket._id ||
+                        `ticket-${index}`
+                    );
+
+                  const status =
+                    String(
+                      ticket.status ||
+                        "open"
+                    ).toLowerCase();
+
+                  return (
+                    <div
+                      key={`ticket-${ticketId}-${index}`}
+                      className="rounded-xl border border-slate-800 bg-slate-950 p-4"
+                    >
+
+                      <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+
+                        <div>
+
+                          <div className="flex flex-wrap items-center gap-2">
+
+                            <span className="text-white font-semibold">
+                              {normalizeText(
+                                ticket.subject ||
+                                  ticket.title,
+                                "Chamado"
+                              )}
+                            </span>
+
+                            {ticket.code && (
+                              <span className="rounded-md bg-slate-900 border border-slate-700 px-2 py-1 text-xs text-slate-400">
+                                {normalizeText(
+                                  ticket.code
+                                )}
+                              </span>
+                            )}
+
+                            <span
+                              className={`inline-flex rounded-full border px-2 py-1 text-xs ${getUserStatusClass(
+                                status
+                              )}`}
+                            >
+                              {getStatusLabel(
+                                status
+                              )}
+                            </span>
+
+                          </div>
+
+                          <p className="text-sm text-slate-400 mt-2 whitespace-pre-wrap">
+                            {normalizeText(
+                              ticket.message ||
+                                ticket.description,
+                              "Sem mensagem."
+                            )}
+                          </p>
+
+                          {(ticket.user_name ||
+                            ticket.email) && (
+                            <p className="text-xs text-slate-600 mt-3">
+
+                              {normalizeText(
+                                ticket.user_name
+                              )}
+
+                              {ticket.email
+                                ? ` · ${normalizeText(
+                                    ticket.email
+                                  )}`
+                                : ""}
+
+                            </p>
+                          )}
+
+                        </div>
+
+                        {status ===
+                          "open" && (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              resolveTicket(
+                                ticketId
+                              )
+                            }
+                            className="shrink-0 inline-flex items-center justify-center gap-2 rounded-lg bg-blue-600 px-3 py-2 text-xs font-semibold text-white hover:bg-blue-500"
+                          >
+                            <CheckCircle2 className="w-4 h-4" />
+                            Resolver
+                          </button>
+                        )}
+
+                      </div>
+                    </div>
+                  );
+                }
+              )}
+
+            </div>
+          )}
+
+        </section>
+
+      </div>
+
+      {selectedCourier && (
+        <div
+          className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 backdrop-blur-sm p-4"
+          onMouseDown={(event) => {
+            if (
+              event.target === event.currentTarget
+            ) {
+              setSelectedCourier(null);
+            }
+          }}
+        >
+
+          <div className="w-full max-w-2xl max-h-[90vh] overflow-y-auto rounded-2xl border border-slate-700 bg-slate-900 shadow-2xl">
+
+            <div className="sticky top-0 z-10 flex items-center justify-between border-b border-slate-800 bg-slate-900 px-6 py-5">
+
+              <div className="flex items-center gap-3">
+
+                <div className="w-11 h-11 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center">
+                  <CreditCard className="w-6 h-6 text-emerald-400" />
+                </div>
+
+                <div>
+
+                  <h2 className="text-lg font-bold text-white">
+                    Conta do entregador
+                  </h2>
+
+                  <p className="text-sm text-slate-400">
+                    {normalizeText(
+                      selectedCourier.name,
+                      "Entregador"
+                    )}
+                  </p>
+
+                </div>
+
+              </div>
+
+              <button
+                type="button"
+                onClick={() =>
+                  setSelectedCourier(null)
+                }
+                className="w-9 h-9 rounded-lg border border-slate-700 bg-slate-950 text-slate-400 hover:text-white hover:bg-slate-800 flex items-center justify-center"
+                aria-label="Fechar"
+              >
+                <X className="w-5 h-5" />
+              </button>
+
+            </div>
+
+            <div className="p-6">
+
+              <div className="mb-6 rounded-xl border border-slate-800 bg-slate-950 p-4">
+
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+
+                  <div>
+
+                    <p className="text-xs text-slate-500">
+                      Entregador
+                    </p>
+
+                    <p className="text-base font-semibold text-white mt-1">
+                      {normalizeText(
+                        selectedCourier.name,
+                        "Entregador"
+                      )}
+                    </p>
+
+                    {selectedCourier.phone && (
+                      <p className="text-xs text-slate-500 mt-1">
+                        {normalizeText(
+                          selectedCourier.phone
+                        )}
+                      </p>
+                    )}
+
+                  </div>
+
+                  <span
+                    className={`inline-flex self-start sm:self-auto rounded-full border px-3 py-1.5 text-xs font-medium ${getUserStatusClass(
+                      selectedCourier.status
+                    )}`}
+                  >
+                    {getStatusLabel(
+                      selectedCourier.status
+                    )}
+                  </span>
+
+                </div>
+
+              </div>
+
+              {hasPaymentAccount(
+                selectedCourier
+              ) ? (
+                <>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+
+                    <div className="rounded-xl border border-slate-800 bg-slate-950 p-4">
+                      <p className="text-xs text-slate-500">
+                        Titular da conta
+                      </p>
+
+                      <p className="text-sm font-medium text-white mt-1 break-words">
+                        {normalizeText(
+                          selectedCourier
+                            ?.payment_account
+                            ?.holder_name,
+                          "-"
+                        )}
+                      </p>
+                    </div>
+
+                    <div className="rounded-xl border border-slate-800 bg-slate-950 p-4">
+                      <p className="text-xs text-slate-500">
+                        CPF / CNPJ
+                      </p>
+
+                      <p className="text-sm font-medium text-white mt-1 break-words">
+                        {normalizeText(
+                          selectedCourier
+                            ?.payment_account
+                            ?.document,
+                          "-"
+                        )}
+                      </p>
+                    </div>
+
+                    <div className="rounded-xl border border-slate-800 bg-slate-950 p-4">
+                      <p className="text-xs text-slate-500">
+                        Banco
+                      </p>
+
+                      <p className="text-sm font-medium text-white mt-1 break-words">
+                        {normalizeText(
+                          selectedCourier
+                            ?.payment_account
+                            ?.bank,
+                          "-"
+                        )}
+                      </p>
+                    </div>
+
+                    <div className="rounded-xl border border-slate-800 bg-slate-950 p-4">
+                      <p className="text-xs text-slate-500">
+                        Agência
+                      </p>
+
+                      <p className="text-sm font-medium text-white mt-1 break-words">
+                        {normalizeText(
+                          selectedCourier
+                            ?.payment_account
+                            ?.agency,
+                          "-"
+                        )}
+                      </p>
+                    </div>
+
+                    <div className="rounded-xl border border-slate-800 bg-slate-950 p-4">
+                      <p className="text-xs text-slate-500">
+                        Número da conta
+                      </p>
+
+                      <p className="text-sm font-medium text-white mt-1 break-words">
+                        {normalizeText(
+                          selectedCourier
+                            ?.payment_account
+                            ?.account,
+                          "-"
+                        )}
+                      </p>
+                    </div>
+
+                    <div className="rounded-xl border border-slate-800 bg-slate-950 p-4">
+                      <p className="text-xs text-slate-500">
+                        Tipo da conta
+                      </p>
+
+                      <p className="text-sm font-medium text-white mt-1">
+                        {getAccountTypeLabel(
+                          selectedCourier
+                            ?.payment_account
+                            ?.account_type
+                        )}
+                      </p>
+                    </div>
+
+                    <div className="rounded-xl border border-slate-800 bg-slate-950 p-4">
+                      <p className="text-xs text-slate-500">
+                        Tipo da chave PIX
+                      </p>
+
+                      <p className="text-sm font-medium text-white mt-1">
+                        {getPixTypeLabel(
+                          selectedCourier
+                            ?.payment_account
+                            ?.pix_key_type
+                        )}
+                      </p>
+                    </div>
+
+                    <div className="rounded-xl border border-slate-800 bg-slate-950 p-4">
+                      <p className="text-xs text-slate-500">
+                        Chave PIX
+                      </p>
+
+                      <p className="text-sm font-medium text-emerald-400 mt-1 break-all">
+                        {normalizeText(
+                          selectedCourier
+                            ?.payment_account
+                            ?.pix_key,
+                          "-"
+                        )}
+                      </p>
+                    </div>
+
+                  </div>
+
+                  {selectedCourier
+                    ?.payment_account
+                    ?.updated_at && (
+                    <div className="mt-5 flex items-center gap-2 text-xs text-slate-500">
+
+                      <Clock className="w-3.5 h-3.5" />
+
+                      Última atualização:{" "}
+                      {formatDateTimeBR(
+                        selectedCourier
+                          .payment_account
+                          .updated_at
+                      )}
+
+                    </div>
+                  )}
+
+                </>
+              ) : (
+                <div className="rounded-xl border border-dashed border-amber-500/30 bg-amber-500/5 p-8 text-center">
+
+                  <CreditCard className="w-9 h-9 mx-auto text-amber-400 mb-3" />
+
+                  <p className="text-white font-medium">
+                    Conta de recebimento não cadastrada
+                  </p>
+
+                  <p className="text-sm text-slate-500 mt-2">
+                    Este entregador ainda não informou os dados bancários ou a chave PIX.
+                  </p>
+
+                </div>
+              )}
+
+            </div>
+
+            <div className="flex justify-end border-t border-slate-800 bg-slate-950 px-6 py-4">
+
+              <button
+                type="button"
+                onClick={() =>
+                  setSelectedCourier(null)
+                }
+                className="inline-flex items-center gap-2 rounded-xl border border-slate-700 bg-slate-900 px-4 py-2.5 text-sm font-semibold text-slate-200 hover:bg-slate-800"
+              >
+                <X className="w-4 h-4" />
+                Fechar
+              </button>
+
+            </div>
+
+          </div>
+        </div>
+      )}
+
     </Layout>
   );
 }
 
-function StatCard({ icon, label, value, sub, testid }) {
-  return (
-    <div className="bg-slate-900 border border-slate-800 p-5 rounded-2xl">
-      <div className="flex items-center space-x-2 text-orange-400">{icon}<p className="text-xs uppercase font-bold tracking-wide">{label}</p></div>
-      <h3 data-testid={testid} className="text-2xl font-black text-white mt-2">{value}</h3>
-      {sub && <p className="text-xs text-slate-400 mt-2">{sub}</p>}
-    </div>
-  );
-}
-
-function FormInput({ label, value, onChange, testid }) {
-  return (
-    <label className="block">
-      <span className="text-xs text-slate-400 block mb-1 font-semibold">{label}</span>
-      <input data-testid={testid} value={value || ""} onChange={(e) => onChange(e.target.value)} className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-orange-500" />
-    </label>
-  );
-}
