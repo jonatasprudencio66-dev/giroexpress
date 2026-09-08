@@ -342,15 +342,9 @@ export default function CourierDashboard() {
   const websocketGenerationRef =
     useRef(0);
 
-  /*
-   * Impede duas requisições simultâneas.
-   */
   const loadingDeliveriesRef =
     useRef(false);
 
-  /*
-   * Identifica a requisição mais recente.
-   */
   const loadGenerationRef =
     useRef(0);
 
@@ -760,13 +754,6 @@ export default function CourierDashboard() {
 
   /* ============================================================
    * CARREGAR CORRIDAS
-   *
-   * CORREÇÃO DO PISCA-PISCA:
-   * - somente primeira carga usa loading visual;
-   * - atualizações seguintes são silenciosas;
-   * - evita requisições simultâneas;
-   * - evita setState se nada mudou;
-   * - ordena a assinatura para ignorar mudança de ordem.
    * ============================================================ */
 
   const load = useCallback(
@@ -819,10 +806,6 @@ export default function CourierDashboard() {
               !d.courier_id
           );
 
-        /*
-         * Detecta novas corridas somente
-         * depois da primeira carga.
-         */
         if (
           !firstLoad.current &&
           onlineRef.current &&
@@ -890,13 +873,6 @@ export default function CourierDashboard() {
         firstLoad.current =
           false;
 
-        /*
-         * Ordenação estável.
-         *
-         * Se a API retornar os mesmos pedidos
-         * em ordem diferente, não atualizamos o
-         * estado e não causamos render desnecessário.
-         */
         const signatureSource =
           [...nextDeliveries].sort(
             (a, b) =>
@@ -966,10 +942,6 @@ export default function CourierDashboard() {
             signature
           );
 
-        /*
-         * Só atualiza a tela quando os dados
-         * realmente mudaram.
-         */
         if (
           nextSignature !==
           lastDeliverySignature.current
@@ -982,11 +954,6 @@ export default function CourierDashboard() {
           );
         }
       } catch (error) {
-        /*
-         * Toast somente na primeira carga.
-         * Durante o polling, erro não fica
-         * piscando nem incomodando o usuário.
-         */
         if (
           firstLoad.current &&
           mountedRef.current
@@ -999,10 +966,6 @@ export default function CourierDashboard() {
         loadingDeliveriesRef.current =
           false;
 
-        /*
-         * Nunca ativa loading novamente
-         * durante o polling.
-         */
         if (
           mountedRef.current
         ) {
@@ -1022,16 +985,8 @@ export default function CourierDashboard() {
       return;
     }
 
-    /*
-     * Primeira carga.
-     */
     load();
 
-    /*
-     * Atualização silenciosa a cada 8 segundos.
-     *
-     * O conteúdo atual continua na tela.
-     */
     const timer =
       setInterval(() => {
         load();
@@ -1736,6 +1691,10 @@ export default function CourierDashboard() {
         </div>
       ) : (
         <>
+          {/* ==================================================
+              1. CORRIDAS DISPONÍVEIS
+          ================================================== */}
+
           <div className="mb-6">
             <Section
               title="Corridas Disponíveis"
@@ -1797,135 +1756,11 @@ export default function CourierDashboard() {
             </Section>
           </div>
 
-          <div
-            className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6"
-            data-testid="courier-dashboard"
-          >
-            <StatCard
-              icon={
-                <DollarSign className="w-5 h-5" />
-              }
-              label="Ganhos Líquidos Hoje"
-              value={formatBRL(
-                netToday
-              )}
-              sub="Taxa admin de R$ 1,00 já descontada"
-              testid="courier-earnings"
-            />
+          {/* ==================================================
+              2. CORRIDAS EM ANDAMENTO
+          ================================================== */}
 
-            <StatCard
-              icon={
-                <Package className="w-5 h-5" />
-              }
-              label="Corridas Ativas"
-              value={`${activeCount}/${MAX_ACTIVE_DELIVERIES}`}
-              sub={
-                remainingSlots >
-                0
-                  ? `${remainingSlots} vaga${
-                      remainingSlots >
-                      1
-                        ? "s"
-                        : ""
-                    } disponível${
-                      remainingSlots >
-                      1
-                        ? "eis"
-                        : ""
-                    }`
-                  : "Limite atingido — conclua uma entrega"
-              }
-            />
-
-            <StatCard
-              icon={
-                <Bike className="w-5 h-5" />
-              }
-              label="Veículo"
-              value={
-                user?.vehicle ||
-                "—"
-              }
-              sub="Cadastrado"
-            />
-
-            <StatCard
-              icon={
-                <MapPin className="w-5 h-5" />
-              }
-              label="Disponíveis na Região"
-              value={
-                available.length
-              }
-              sub="Prontas para aceitar"
-            />
-          </div>
-
-          <div
-            className={`mb-6 rounded-2xl border p-4 ${
-              hasAvailableSlots
-                ? "border-orange-500/30 bg-orange-500/10"
-                : "border-rose-500/40 bg-rose-500/10"
-            }`}
-            data-testid="courier-capacity"
-          >
-            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-              <div>
-                <p className="text-sm font-black text-white">
-                  Pedidos na sua
-                  rota:{" "}
-                  {activeCount}/
-                  {
-                    MAX_ACTIVE_DELIVERIES
-                  }
-                </p>
-
-                <p className="text-xs text-slate-400 mt-1">
-                  Você pode aceitar
-                  pedidos de
-                  qualquer loja até
-                  completar 8
-                  pedidos ativos.
-                </p>
-              </div>
-
-              <div className="shrink-0 text-xs font-bold px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-slate-300">
-                {hasAvailableSlots
-                  ? `${remainingSlots} ${
-                      remainingSlots ===
-                      1
-                        ? "vaga"
-                        : "vagas"
-                    } restante${
-                      remainingSlots ===
-                      1
-                        ? ""
-                        : "s"
-                    }`
-                  : "8/8 — limite atingido"}
-              </div>
-            </div>
-
-            <div className="mt-3 h-2 rounded-full bg-slate-950 overflow-hidden">
-              <div
-                className={`h-full rounded-full transition-all ${
-                  hasAvailableSlots
-                    ? "bg-orange-500"
-                    : "bg-rose-500"
-                }`}
-                style={{
-                  width: `${Math.min(
-                    100,
-                    (activeCount /
-                      MAX_ACTIVE_DELIVERIES) *
-                      100
-                  )}%`,
-                }}
-              />
-            </div>
-          </div>
-
-          <div className="space-y-6">
+          <div className="mb-6">
             <Section
               title="Minhas Corridas em Andamento"
               empty="Aceite uma corrida acima para começar."
@@ -1992,9 +1827,15 @@ export default function CourierDashboard() {
                 />
               )}
             </Section>
+          </div>
 
+          {/* ==================================================
+              3. HISTÓRICO DE CORRIDAS
+          ================================================== */}
+
+          <div className="mb-6">
             <Section
-              title="Histórico"
+              title="Histórico de Corridas"
               empty="Sem histórico ainda."
               data={history}
             >
@@ -2031,6 +1872,142 @@ export default function CourierDashboard() {
                 />
               )}
             </Section>
+          </div>
+
+          {/* ==================================================
+              4. RESUMO / INDICADORES
+          ================================================== */}
+
+          <div
+            className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6"
+            data-testid="courier-dashboard"
+          >
+            <StatCard
+              icon={
+                <DollarSign className="w-5 h-5" />
+              }
+              label="Ganhos Líquidos Hoje"
+              value={formatBRL(
+                netToday
+              )}
+              sub="Taxa admin de R$ 1,00 já descontada"
+              testid="courier-earnings"
+            />
+
+            <StatCard
+              icon={
+                <Package className="w-5 h-5" />
+              }
+              label="Corridas Ativas"
+              value={`${activeCount}/${MAX_ACTIVE_DELIVERIES}`}
+              sub={
+                remainingSlots >
+                0
+                  ? `${remainingSlots} vaga${
+                      remainingSlots >
+                      1
+                        ? "s"
+                        : ""
+                    } disponível${
+                      remainingSlots >
+                      1
+                        ? "eis"
+                        : ""
+                    }`
+                  : "Limite atingido — conclua uma entrega"
+              }
+            />
+
+            <StatCard
+              icon={
+                <Bike className="w-5 h-5" />
+              }
+              label="Veículo"
+              value={
+                user?.vehicle ||
+                "—"
+              }
+              sub="Cadastrado"
+            />
+
+            <StatCard
+              icon={
+                <MapPin className="w-5 h-5" />
+              }
+              label="Disponíveis na Região"
+              value={
+                available.length
+              }
+              sub="Prontas para aceitar"
+            />
+          </div>
+
+          {/* ==================================================
+              5. CAPACIDADE DA ROTA
+          ================================================== */}
+
+          <div
+            className={`mb-6 rounded-2xl border p-4 ${
+              hasAvailableSlots
+                ? "border-orange-500/30 bg-orange-500/10"
+                : "border-rose-500/40 bg-rose-500/10"
+            }`}
+            data-testid="courier-capacity"
+          >
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+              <div>
+                <p className="text-sm font-black text-white">
+                  Pedidos na sua
+                  rota:{" "}
+                  {activeCount}/
+                  {
+                    MAX_ACTIVE_DELIVERIES
+                  }
+                </p>
+
+                <p className="text-xs text-slate-400 mt-1">
+                  Você pode aceitar
+                  pedidos de
+                  qualquer loja até
+                  completar 8
+                  pedidos ativos.
+                </p>
+              </div>
+
+              <div className="shrink-0 text-xs font-bold px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-slate-300">
+                {hasAvailableSlots
+                  ? `${remainingSlots} ${
+                      remainingSlots ===
+                      1
+                        ? "vaga"
+                        : "vagas"
+                    } restante${
+                      remainingSlots ===
+                      1
+                        ? ""
+                        : "s"
+                    }`
+                  : "8/8 — limite atingido"}
+              </div>
+            </div>
+
+            <div className="mt-3 h-2 rounded-full bg-slate-950 overflow-hidden">
+              <div
+                className={`h-full rounded-full transition-all ${
+                  hasAvailableSlots
+                    ? "bg-orange-500"
+                    : "bg-rose-500"
+                }`}
+                style={{
+                  width: `${Math.min(
+                    100,
+                    (activeCount /
+                      MAX_ACTIVE_DELIVERIES) *
+                      100
+                  )}%`,
+                }}
+              />
+            </div>
           </div>
         </>
       )}
