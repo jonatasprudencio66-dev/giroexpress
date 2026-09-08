@@ -55,6 +55,18 @@ export default function StoreDashboard() {
   const activeChatDeliveryRef =
     useRef(null);
 
+  // IMPORTANTE:
+  // Mantém a versão mais recente das entregas disponível
+  // para o WebSocket sem fazer o WebSocket depender
+  // diretamente do estado deliveries.
+  const deliveriesRef =
+    useRef([]);
+
+  // Controla se é o primeiro carregamento.
+  // Assim o "Carregando..." não aparece a cada polling.
+  const firstLoadRef =
+    useRef(true);
+
   const [deliveryForm, setDeliveryForm] =
     useState({
       pickup_address: "Loja",
@@ -92,12 +104,24 @@ export default function StoreDashboard() {
   }, [activeChatDelivery]);
 
   // ============================================================
+  // MANTER REFERÊNCIA DAS ENTREGAS ATUALIZADA
+  // ============================================================
+
+  useEffect(() => {
+    deliveriesRef.current =
+      deliveries;
+  }, [deliveries]);
+
+  // ============================================================
   // CARREGAR DADOS
   // ============================================================
 
   const loadData = useCallback(async () => {
     try {
-      setLoading(true);
+      // Só mostra carregamento visual no primeiro carregamento.
+      if (firstLoadRef.current) {
+        setLoading(true);
+      }
 
       const [delRes, prodRes] =
         await Promise.all([
@@ -147,6 +171,9 @@ export default function StoreDashboard() {
       } else {
         setProducts([]);
       }
+
+      firstLoadRef.current =
+        false;
     } catch (error) {
       console.error(
         "Erro ao carregar dados:",
@@ -439,8 +466,12 @@ export default function StoreDashboard() {
                 notification.close();
 
                 if (deliveryId) {
+                  // IMPORTANTE:
+                  // Usa a ref em vez do estado deliveries.
+                  // Isso evita recriar o WebSocket quando
+                  // as entregas forem atualizadas.
                   const delivery =
-                    deliveries.find(
+                    deliveriesRef.current.find(
                       (item) =>
                         String(
                           item.id ||
@@ -492,7 +523,7 @@ export default function StoreDashboard() {
           );
         }
       },
-      [deliveries]
+      []
     );
 
   // ============================================================
@@ -534,6 +565,20 @@ export default function StoreDashboard() {
           return;
         }
 
+        // Evita criar uma segunda conexão se já houver
+        // uma conexão ativa ou em processo de conexão.
+        if (
+          ws &&
+          (
+            ws.readyState ===
+              WebSocket.OPEN ||
+            ws.readyState ===
+              WebSocket.CONNECTING
+          )
+        ) {
+          return;
+        }
+
         try {
           console.log(
             "[GiroExpress] ======================================="
@@ -572,6 +617,10 @@ export default function StoreDashboard() {
           // ====================================================
 
           ws.onopen = () => {
+            if (isUnmounted) {
+              return;
+            }
+
             console.log(
               "[GiroExpress] ✅ WebSocket da loja conectado."
             );
@@ -879,6 +928,8 @@ export default function StoreDashboard() {
               }
             );
 
+            ws = null;
+
             if (
               !isUnmounted
             ) {
@@ -896,6 +947,8 @@ export default function StoreDashboard() {
             }
           };
         } catch (error) {
+          ws = null;
+
           console.warn(
             "[GiroExpress] Não foi possível conectar ao WebSocket da loja:",
             error
@@ -930,6 +983,9 @@ export default function StoreDashboard() {
         clearTimeout(
           reconnectTimer
         );
+
+        reconnectTimer =
+          null;
       }
 
       if (ws) {
@@ -939,13 +995,22 @@ export default function StoreDashboard() {
           ws.onerror = null;
           ws.onclose = null;
 
-          ws.close();
+          if (
+            ws.readyState ===
+              WebSocket.OPEN ||
+            ws.readyState ===
+              WebSocket.CONNECTING
+          ) {
+            ws.close();
+          }
         } catch (error) {
           console.warn(
             "[GiroExpress] Erro ao fechar WebSocket:",
             error
           );
         }
+
+        ws = null;
       }
     };
   }, [
@@ -1569,7 +1634,7 @@ export default function StoreDashboard() {
                             </div>
 
                             {/* =================================================
-                                BOTÃO CHAT COM INDICADOR DE NOVA MENSAGEM
+                                BOTÃO CHAT
                             ================================================== */}
 
                             <button
