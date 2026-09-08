@@ -1,4 +1,3 @@
-
 import axios from "axios";
 
 /*
@@ -6,35 +5,56 @@ import axios from "axios";
  * CONFIGURAÇÃO DA API
  * ============================================================
  *
- * O frontend e o backend podem estar:
+ * LOCAL:
+ *   http://localhost:8000/api
+ *   http://192.168.0.110:8000/api
  *
- * 1. No mesmo computador:
- *    http://localhost:8000
+ * VERCEL:
+ *   /api
  *
- * 2. Em outro dispositivo da rede local:
- *    http://192.168.0.110:8000
- *
- * 3. Em produção:
- *    https://seu-dominio.com
- *
- * A API acompanha automaticamente o hostname usado
- * para abrir o frontend.
+ * No Vercel, o frontend e o FastAPI ficam no mesmo domínio.
+ * Por isso NÃO devemos acrescentar :8000 em produção.
  */
 
 const hostname = window.location.hostname;
 const protocol = window.location.protocol;
 
+const isLocalhost =
+  hostname === "localhost" ||
+  hostname === "127.0.0.1";
+
+const isVercel =
+  hostname.endsWith(".vercel.app");
+
 /*
- * Quando o frontend está sendo acessado por localhost,
- * usamos localhost no backend.
+ * ============================================================
+ * API HOST
+ * ============================================================
  *
- * Quando está sendo acessado pelo IP da rede,
- * usamos o mesmo IP no backend.
+ * Local:
+ *   http://localhost:8000
+ *   http://192.168.0.110:8000
+ *
+ * Vercel:
+ *   "" (usa o próprio domínio)
  */
-export const API_HOST =
-  hostname === "localhost" || hostname === "127.0.0.1"
-    ? `${protocol === "https:" ? "https" : "http"}://${hostname}:8000`
-    : `${protocol === "https:" ? "https" : "http"}://${hostname}:8000`;
+
+export const API_HOST = isVercel
+  ? ""
+  : `${protocol === "https:" ? "https" : "http"}://${hostname}:8000`;
+
+/*
+ * ============================================================
+ * API BASE
+ * ============================================================
+ *
+ * Vercel:
+ *   /api
+ *
+ * Local:
+ *   http://localhost:8000/api
+ *   http://192.168.0.110:8000/api
+ */
 
 export const API_BASE = `${API_HOST}/api`;
 
@@ -44,9 +64,20 @@ export const API_BASE = `${API_HOST}/api`;
  * ============================================================
  */
 
-console.log("[GiroExpress] Frontend hostname:", hostname);
-console.log("[GiroExpress] API_HOST:", API_HOST);
-console.log("[GiroExpress] API_BASE:", API_BASE);
+console.log(
+  "[GiroExpress] Frontend hostname:",
+  hostname
+);
+
+console.log(
+  "[GiroExpress] API_HOST:",
+  API_HOST
+);
+
+console.log(
+  "[GiroExpress] API_BASE:",
+  API_BASE
+);
 
 /*
  * ============================================================
@@ -76,7 +107,9 @@ api.interceptors.request.use(
 
     if (token) {
       config.headers = config.headers || {};
-      config.headers.Authorization = `Bearer ${token}`;
+
+      config.headers.Authorization =
+        `Bearer ${token}`;
     }
 
     console.log(
@@ -106,7 +139,8 @@ api.interceptors.response.use(
     console.error(
       "[GiroExpress] Erro API:",
       error?.response?.status,
-      error?.response?.data || error?.message
+      error?.response?.data ||
+        error?.message
     );
 
     return Promise.reject(error);
@@ -120,10 +154,14 @@ api.interceptors.response.use(
  */
 
 export function apiError(err) {
-  const detail = err?.response?.data?.detail;
+  const detail =
+    err?.response?.data?.detail;
 
   if (detail == null) {
-    return err?.message || "Erro desconhecido.";
+    return (
+      err?.message ||
+      "Erro desconhecido."
+    );
   }
 
   if (typeof detail === "string") {
@@ -154,18 +192,14 @@ export function apiError(err) {
  * WEBSOCKET
  * ============================================================
  *
- * O frontend pode estar em:
+ * LOCAL:
+ *   ws://localhost:8000/ws/...
+ *   ws://192.168.0.110:8000/ws/...
  *
- * http://localhost:3000
- * http://192.168.0.110:3000
+ * VERCEL:
+ *   wss://giroexpress-9ufp.vercel.app/ws/...
  *
- * E o FastAPI:
- *
- * http://localhost:8000
- * http://192.168.0.110:8000
- *
- * O WebSocket usa automaticamente o mesmo hostname
- * utilizado pelo frontend.
+ * No Vercel não usamos :8000.
  */
 
 export function createUserWebSocket(userId) {
@@ -177,16 +211,31 @@ export function createUserWebSocket(userId) {
     return null;
   }
 
-  const hostname = window.location.hostname;
+  const hostname =
+    window.location.hostname;
 
   const wsProtocol =
     window.location.protocol === "https:"
       ? "wss:"
       : "ws:";
 
-  const host = `${hostname}:8000`;
+  /*
+   * No Vercel:
+   *   hostname
+   *
+   * Local:
+   *   hostname:8000
+   */
 
-  const url = `${wsProtocol}//${host}/ws/${userId}`;
+  const isProduction =
+    hostname.endsWith(".vercel.app");
+
+  const host = isProduction
+    ? hostname
+    : `${hostname}:8000`;
+
+  const url =
+    `${wsProtocol}//${host}/ws/${userId}`;
 
   console.log(
     "[GiroExpress] Conectando WebSocket:",
@@ -204,5 +253,3 @@ export function createUserWebSocket(userId) {
     return null;
   }
 }
-
-
