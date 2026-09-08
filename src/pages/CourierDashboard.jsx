@@ -1,4 +1,3 @@
-
 import React, {
   useCallback,
   useEffect,
@@ -1352,14 +1351,46 @@ export default function CourierDashboard() {
     activeCount <
     MAX_ACTIVE_DELIVERIES;
 
+  /*
+   * ============================================================
+   * CORRIDAS DISPONÍVEIS
+   *
+   * A corrida mais nova fica SEMPRE NO TOPO.
+   * Primeiro usamos created_at.
+   * Caso não exista, usamos updated_at.
+   * ============================================================
+   */
+
   const available =
     hasAvailableSlots
-      ? deliveries.filter(
-          (d) =>
-            d.status ===
-              "pending" &&
-            !d.courier_id
-        )
+      ? [...deliveries]
+          .filter(
+            (d) =>
+              d.status ===
+                "pending" &&
+              !d.courier_id
+          )
+          .sort(
+            (a, b) => {
+              const dateA =
+                new Date(
+                  a.created_at ||
+                    a.updated_at ||
+                    0
+                ).getTime();
+
+              const dateB =
+                new Date(
+                  b.created_at ||
+                    b.updated_at ||
+                    0
+                ).getTime();
+
+              return (
+                dateB - dateA
+              );
+            }
+          )
       : [];
 
   const mine =

@@ -1,0 +1,22 @@
+[
+    {
+        "id": "101",
+        "code": "COR-101",
+        "status": "in_progress",
+        "store": "Loja Parceira",
+        "store_name": "Loja Parceira",
+        "storename": "Loja Parceira",
+        "store_email": "loja@giroexpress.com",
+        "client": "Cliente Exemplo",
+        "pickup": "Rua das Flores, 123",
+        "delivery": "Av. Brasil, 456 - Apto 22",
+        "price": 15.5,
+        "gross_price": 15.5,
+        "items": "Porção de Batata Frita",
+        "startTime": "2026-09-06T10:00:00",
+        "distance": "2.5 km",
+        "courier_id": "teste1@gmail.com",
+        "courierid": "teste1@gmail.com",
+        "courierId": "teste1@gmail.com"
+    }
+]

@@ -1,0 +1,32 @@
+[
+    {
+        "id": "101",
+        "code": "COR-101",
+        "status": "in_progress",
+        "store": "Loja Parceira",
+        "store_name": "Loja Parceira",
+        "store_email": "loja@giroexpress.com",
+        "pickup": "Rua das Palmeiras, 500",
+        "delivery": "Rua XV de Novembro, 1000",
+        "price": 15.5,
+        "gross_price": 16.5,
+        "items": "Pizza Margherita",
+        "distance": "1.8 km",
+        "courier_id": "teste1@gmail.com"
+    },
+    {
+        "id": "102",
+        "code": "COR-102",
+        "status": "in_progress",
+        "store": "Loja Parceira",
+        "store_name": "Loja Parceira",
+        "store_email": "loja@giroexpress.com",
+        "pickup": "Rua das Flores, 123",
+        "delivery": "Av. Brasil, 456",
+        "price": 20.0,
+        "gross_price": 21.0,
+        "items": "Porção Completa",
+        "distance": "2.5 km",
+        "courier_id": "teste1@gmail.com"
+    }
+]

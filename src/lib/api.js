@@ -2,22 +2,44 @@ import axios from "axios";
 
 /*
  * ============================================================
- * CONFIGURAÇÃO DA API
+ * CONFIGURAÇÃO DA API - GIROEXPRESS
  * ============================================================
  *
- * LOCAL:
+ * AMBIENTE LOCAL:
  *   http://localhost:8000/api
  *   http://192.168.0.110:8000/api
  *
  * VERCEL:
  *   /api
  *
- * No Vercel, o frontend e o FastAPI ficam no mesmo domínio.
- * Por isso NÃO devemos acrescentar :8000 em produção.
+ * APK ANDROID:
+ *   https://giroexpress-9ufp.vercel.app/api
+ *
+ * IMPORTANTE:
+ * No Android/Capacitor o hostname da aplicação NÃO é
+ * necessariamente o domínio da Vercel.
+ *
+ * Por isso o APK precisa ser identificado separadamente.
  */
 
-const hostname = window.location.hostname;
-const protocol = window.location.protocol;
+/* ============================================================
+   INFORMAÇÕES DO AMBIENTE
+============================================================ */
+
+const hostname =
+  typeof window !== "undefined"
+    ? window.location.hostname
+    : "";
+
+const protocol =
+  typeof window !== "undefined"
+    ? window.location.protocol
+    : "http:";
+
+/*
+ * ============================================================
+ * DETECÇÃO DO AMBIENTE
+============================================================ */
 
 const isLocalhost =
   hostname === "localhost" ||
@@ -27,46 +49,112 @@ const isVercel =
   hostname.endsWith(".vercel.app");
 
 /*
- * ============================================================
- * API HOST
- * ============================================================
+ * Capacitor / Android / iOS
  *
- * Local:
- *   http://localhost:8000
- *   http://192.168.0.110:8000
+ * O Capacitor pode utilizar:
+ *   capacitor://localhost
+ *   http://localhost
+ *   https://localhost
  *
- * Vercel:
- *   "" (usa o próprio domínio)
+ * Portanto, além de verificar o hostname, verificamos também
+ * a existência do objeto Capacitor no navegador.
  */
 
-export const API_HOST = isVercel
-  ? ""
-  : `${protocol === "https:" ? "https" : "http"}://${hostname}:8000`;
+const isCapacitor =
+  typeof window !== "undefined" &&
+  (
+    window.Capacitor !== undefined ||
+    window.location.protocol === "capacitor:"
+  );
+
+/*
+ * ============================================================
+ * URL FIXA DA API EM PRODUÇÃO
+============================================================ */
+
+const PRODUCTION_API =
+  "https://giroexpress-9ufp.vercel.app";
+
+/*
+ * ============================================================
+ * API HOST
+============================================================ */
+
+let apiHost;
+
+/*
+ * APK / CAPACITOR
+ *
+ * Sempre usa a API pública da Vercel.
+ */
+
+if (isCapacitor) {
+  apiHost = PRODUCTION_API;
+}
+
+/*
+ * VERCEL
+ *
+ * Frontend e backend ficam no mesmo domínio.
+ */
+
+else if (isVercel) {
+  apiHost = "";
+}
+
+/*
+ * LOCAL
+ *
+ * Usa o mesmo hostname da máquina onde o navegador está
+ * executando.
+ *
+ * Exemplos:
+ *
+ * localhost:
+ *   http://localhost:8000
+ *
+ * rede local:
+ *   http://192.168.0.110:8000
+ */
+
+else {
+  apiHost =
+    `${protocol === "https:" ? "https" : "http"}://${hostname}:8000`;
+}
 
 /*
  * ============================================================
  * API BASE
- * ============================================================
- *
- * Vercel:
- *   /api
- *
- * Local:
- *   http://localhost:8000/api
- *   http://192.168.0.110:8000/api
- */
+============================================================ */
 
-export const API_BASE = `${API_HOST}/api`;
+export const API_HOST = apiHost;
+
+export const API_BASE =
+  `${API_HOST}/api`;
 
 /*
  * ============================================================
  * LOG DE CONFIGURAÇÃO
- * ============================================================
- */
+============================================================ */
 
 console.log(
   "[GiroExpress] Frontend hostname:",
   hostname
+);
+
+console.log(
+  "[GiroExpress] Protocolo:",
+  protocol
+);
+
+console.log(
+  "[GiroExpress] Capacitor:",
+  isCapacitor
+);
+
+console.log(
+  "[GiroExpress] Vercel:",
+  isVercel
 );
 
 console.log(
@@ -82,8 +170,7 @@ console.log(
 /*
  * ============================================================
  * AXIOS
- * ============================================================
- */
+============================================================ */
 
 export const api = axios.create({
   baseURL: API_BASE,
@@ -98,15 +185,16 @@ export const api = axios.create({
 /*
  * ============================================================
  * TOKEN DE AUTENTICAÇÃO
- * ============================================================
- */
+============================================================ */
 
 api.interceptors.request.use(
   (config) => {
-    const token = localStorage.getItem("giro_token");
+    const token =
+      localStorage.getItem("giro_token");
 
     if (token) {
-      config.headers = config.headers || {};
+      config.headers =
+        config.headers || {};
 
       config.headers.Authorization =
         `Bearer ${token}`;
@@ -120,6 +208,7 @@ api.interceptors.request.use(
 
     return config;
   },
+
   (error) => {
     return Promise.reject(error);
   }
@@ -128,13 +217,13 @@ api.interceptors.request.use(
 /*
  * ============================================================
  * TRATAMENTO DE RESPOSTA
- * ============================================================
- */
+============================================================ */
 
 api.interceptors.response.use(
   (response) => {
     return response;
   },
+
   (error) => {
     console.error(
       "[GiroExpress] Erro API:",
@@ -150,8 +239,7 @@ api.interceptors.response.use(
 /*
  * ============================================================
  * TRATAMENTO DE ERROS
- * ============================================================
- */
+============================================================ */
 
 export function apiError(err) {
   const detail =
@@ -192,14 +280,15 @@ export function apiError(err) {
  * WEBSOCKET
  * ============================================================
  *
- * LOCAL:
- *   ws://localhost:8000/ws/...
- *   ws://192.168.0.110:8000/ws/...
+ * APK:
+ *   wss://giroexpress-9ufp.vercel.app/ws/...
  *
  * VERCEL:
  *   wss://giroexpress-9ufp.vercel.app/ws/...
  *
- * No Vercel não usamos :8000.
+ * LOCAL:
+ *   ws://localhost:8000/ws/...
+ *   ws://192.168.0.110:8000/ws/...
  */
 
 export function createUserWebSocket(userId) {
@@ -211,28 +300,59 @@ export function createUserWebSocket(userId) {
     return null;
   }
 
-  const hostname =
-    window.location.hostname;
+  const currentHostname =
+    typeof window !== "undefined"
+      ? window.location.hostname
+      : "";
+
+  const currentProtocol =
+    typeof window !== "undefined"
+      ? window.location.protocol
+      : "http:";
+
+  const production =
+    isCapacitor || isVercel;
+
+  /*
+   * ==========================================================
+   * PRODUÇÃO / APK
+   * ==========================================================
+   */
+
+  if (production) {
+    const url =
+      `wss://giroexpress-9ufp.vercel.app/ws/${userId}`;
+
+    console.log(
+      "[GiroExpress] Conectando WebSocket:",
+      url
+    );
+
+    try {
+      return new WebSocket(url);
+    } catch (error) {
+      console.error(
+        "[GiroExpress] Erro ao criar WebSocket:",
+        error
+      );
+
+      return null;
+    }
+  }
+
+  /*
+   * ==========================================================
+   * LOCAL
+   * ==========================================================
+   */
 
   const wsProtocol =
-    window.location.protocol === "https:"
+    currentProtocol === "https:"
       ? "wss:"
       : "ws:";
 
-  /*
-   * No Vercel:
-   *   hostname
-   *
-   * Local:
-   *   hostname:8000
-   */
-
-  const isProduction =
-    hostname.endsWith(".vercel.app");
-
-  const host = isProduction
-    ? hostname
-    : `${hostname}:8000`;
+  const host =
+    `${currentHostname}:8000`;
 
   const url =
     `${wsProtocol}//${host}/ws/${userId}`;

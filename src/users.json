@@ -1,0 +1,26 @@
+[
+    {
+        "name": "Administrador Master",
+        "email": "jonatasprudencio66@gmail.com",
+        "role": "admin",
+        "status": "active",
+        "approved": true,
+        "is_approved": true
+    },
+    {
+        "name": "Usuário Teste",
+        "email": "jonatas_prudencio@hotmail.com",
+        "role": "deliveryman",
+        "status": "active",
+        "approved": true,
+        "is_approved": true
+    },
+    {
+        "name": "Novo Motoboy Teste",
+        "email": "teste1@gmail.com",
+        "role": "deliveryman",
+        "status": "active",
+        "approved": true,
+        "is_approved": true
+    }
+]
