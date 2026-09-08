@@ -4,7 +4,9 @@
     {
       "src": "package.json",
       "use": "@vercel/static-build",
-      "config": { "distDir": "build" }
+      "config": {
+        "distDir": "build"
+      }
     },
     {
       "src": "src/main.py",
@@ -15,6 +17,9 @@
     {
       "src": "/api/(.*)",
       "dest": "src/main.py"
+    },
+    {
+      "handle": "filesystem"
     },
     {
       "src": "/(.*)",
