@@ -4292,5 +4292,3 @@ export default function AdminDashboard() {
     </Layout>
   );
 }
-
-git add .
