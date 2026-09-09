@@ -239,9 +239,8 @@ export default function StoreDashboard() {
 
         setAccountSaved(
           Boolean(
-            normalized.holder_name ||
-              normalized.pix_key ||
-              normalized.bank
+            normalized.holder_name &&
+              normalized.pix_key
           )
         );
       } catch (error) {
@@ -264,6 +263,8 @@ export default function StoreDashboard() {
     async (event) => {
       event.preventDefault();
 
+      // Os únicos dados obrigatórios para o recebimento
+      // são titular, documento e chave PIX.
       if (
         !accountForm.holder_name.trim()
       ) {
@@ -278,33 +279,6 @@ export default function StoreDashboard() {
       ) {
         toast.error(
           "Informe o CPF/CNPJ."
-        );
-        return;
-      }
-
-      if (
-        !accountForm.bank.trim()
-      ) {
-        toast.error(
-          "Informe o banco."
-        );
-        return;
-      }
-
-      if (
-        !accountForm.agency.trim()
-      ) {
-        toast.error(
-          "Informe a agência."
-        );
-        return;
-      }
-
-      if (
-        !accountForm.account.trim()
-      ) {
-        toast.error(
-          "Informe o número da conta."
         );
         return;
       }
@@ -329,35 +303,49 @@ export default function StoreDashboard() {
 
       try {
         setAccountSaving(true);
+        setAccountSaved(false);
 
-        await api.post(
-          "/me/account",
-          {
-            holder_name:
-              accountForm.holder_name.trim(),
+        const payload = {
+          holder_name:
+            accountForm.holder_name.trim(),
 
-            document:
-              accountForm.document.trim(),
+          document:
+            accountForm.document.trim(),
 
-            bank:
-              accountForm.bank.trim(),
+          // Dados bancários são opcionais.
+          bank:
+            accountForm.bank.trim(),
 
-            agency:
-              accountForm.agency.trim(),
+          agency:
+            accountForm.agency.trim(),
 
-            account:
-              accountForm.account.trim(),
+          account:
+            accountForm.account.trim(),
 
-            account_type:
-              accountForm.account_type,
+          account_type:
+            accountForm.account_type ||
+            "corrente",
 
-            pix_key_type:
-              accountForm.pix_key_type,
+          pix_key_type:
+            accountForm.pix_key_type,
 
-            pix_key:
-              accountForm.pix_key.trim(),
-          }
+          pix_key:
+            accountForm.pix_key.trim(),
+        };
+
+        console.log(
+          "[GiroExpress] Salvando Conta/PIX:",
+          payload
         );
+
+        await api.put(
+          "/me/account",
+          payload
+        );
+
+        // Recarrega diretamente do backend para confirmar
+        // que os dados realmente foram persistidos.
+        await loadAccount();
 
         setAccountSaved(true);
 
@@ -1507,8 +1495,6 @@ export default function StoreDashboard() {
             Faturamento
           </button>
 
-          {/* NOVA ABA CONTA / PIX */}
-
           <button
             type="button"
             onClick={() =>
@@ -2245,7 +2231,7 @@ export default function StoreDashboard() {
                   </h3>
 
                   <p className="text-xs text-slate-500 mt-1">
-                    Informe os dados bancários da conta que receberá os pagamentos.
+                    Informe os dados da pessoa ou empresa que receberá os pagamentos.
                   </p>
                 </div>
 
@@ -2311,9 +2297,19 @@ export default function StoreDashboard() {
 
                 <div className="border-t border-slate-800 pt-6">
 
-                  <h3 className="text-lg font-bold text-white mb-4">
-                    Dados bancários
-                  </h3>
+                  <div className="flex items-center justify-between gap-3 mb-4">
+
+                    <div>
+                      <h3 className="text-lg font-bold text-white">
+                        Dados bancários
+                      </h3>
+
+                      <p className="text-xs text-slate-500 mt-1">
+                        Opcional. Você pode informar apenas o PIX.
+                      </p>
+                    </div>
+
+                  </div>
 
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
 
@@ -3157,3 +3153,4 @@ export default function StoreDashboard() {
     </Layout>
   );
 }
+
