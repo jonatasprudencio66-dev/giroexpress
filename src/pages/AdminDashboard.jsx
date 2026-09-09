@@ -1372,6 +1372,79 @@ export default function AdminDashboard() {
         0
       );
 
+  // =========================================================
+  // RECEITA DO GIROEXPRESS
+  // Regra: R$ 1,00 por entrega concluída.
+  // O valor é calculado a partir das entregas do ciclo atual,
+  // sem depender de valores fixos no frontend.
+  // =========================================================
+  const giroCurrentDeliveries = billing.current_cycles.reduce(
+    (sum, cycle) =>
+      sum + Number(cycle?.total_deliveries || 0),
+    0
+  );
+
+  const giroCurrentReceivable = billing.current_cycles.reduce(
+    (sum, cycle) =>
+      sum + Number(
+        cycle?.total_to_pay ??
+        cycle?.total_amount ??
+        cycle?.total_fee ??
+        0
+      ),
+    0
+  );
+
+  const giroCurrentCourierPay = billing.courier_current_cycles.reduce(
+    (sum, cycle) =>
+      sum + Number(
+        cycle?.total_to_pay ??
+        cycle?.total_courier ??
+        cycle?.total_amount ??
+        0
+      ),
+    0
+  );
+
+  const giroCurrentRevenue = Number(
+    (giroCurrentDeliveries * 1).toFixed(2)
+  );
+
+  const giroHistory = Object.values(
+    billing.history.reduce((groups, cycle) => {
+      const label =
+        cycle?.cycle_label ||
+        `${formatDateBR(cycle?.start_date)} até ${formatDateBR(cycle?.end_date)}`;
+
+      if (!groups[label]) {
+        groups[label] = {
+          cycle_label: label,
+          deliveries: 0,
+          receivable: 0,
+        };
+      }
+
+      groups[label].deliveries += Number(
+        cycle?.total_deliveries || 0
+      );
+
+      groups[label].receivable += Number(
+        cycle?.total_fee || 0
+      );
+
+      return groups;
+    }, {})
+  )
+    .map((item) => ({
+      ...item,
+      revenue: Number((item.deliveries * 1).toFixed(2)),
+    }))
+    .sort((a, b) =>
+      String(b.cycle_label).localeCompare(
+        String(a.cycle_label)
+      )
+    );
+
   if (loading) {
     return (
       <Layout subtitle="Admin Master">
@@ -1576,6 +1649,182 @@ export default function AdminDashboard() {
             </div>
 
           </div>
+        </section>
+
+        {/* =====================================================
+            FINANCEIRO DO GIROEXPRESS — CICLO ATUAL
+            ===================================================== */}
+        <section className="bg-slate-900 border border-emerald-500/20 rounded-2xl p-6">
+
+          <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between mb-6">
+
+            <div>
+              <h2 className="text-lg font-semibold text-white flex items-center gap-2">
+                <CircleDollarSign className="w-5 h-5 text-emerald-400" />
+                Financeiro do GiroExpress
+              </h2>
+
+              <p className="text-sm text-slate-400 mt-1">
+                Visão do ciclo atual. O GiroExpress recebe R$ 1,00 por cada entrega concluída.
+              </p>
+            </div>
+
+            <span className="inline-flex items-center rounded-full border border-emerald-500/20 bg-emerald-500/10 px-3 py-1.5 text-xs font-semibold text-emerald-400">
+              R$ 1,00 por entrega
+            </span>
+
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+
+            <div className="rounded-xl border border-slate-800 bg-slate-950 p-4">
+              <p className="text-xs text-slate-500">
+                🛵 Corridas concluídas
+              </p>
+
+              <p className="text-2xl font-bold text-white mt-1">
+                {giroCurrentDeliveries}
+              </p>
+
+              <p className="text-xs text-slate-500 mt-1">
+                No ciclo atual
+              </p>
+            </div>
+
+            <div className="rounded-xl border border-slate-800 bg-slate-950 p-4">
+              <p className="text-xs text-slate-500">
+                🏪 A receber das lojas
+              </p>
+
+              <p className="text-2xl font-bold text-blue-400 mt-1">
+                {formatBRL(giroCurrentReceivable)}
+              </p>
+
+              <p className="text-xs text-slate-500 mt-1">
+                Cobranças do ciclo atual
+              </p>
+            </div>
+
+            <div className="rounded-xl border border-slate-800 bg-slate-950 p-4">
+              <p className="text-xs text-slate-500">
+                🚴 A pagar aos entregadores
+              </p>
+
+              <p className="text-2xl font-bold text-amber-400 mt-1">
+                {formatBRL(giroCurrentCourierPay)}
+              </p>
+
+              <p className="text-xs text-slate-500 mt-1">
+                Valores calculados no ciclo atual
+              </p>
+            </div>
+
+            <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-4">
+              <p className="text-xs text-slate-500">
+                🟢 Receita do GiroExpress
+              </p>
+
+              <p className="text-2xl font-bold text-emerald-400 mt-1">
+                {formatBRL(giroCurrentRevenue)}
+              </p>
+
+              <p className="text-xs text-slate-500 mt-1">
+                {giroCurrentDeliveries} entrega{giroCurrentDeliveries === 1 ? "" : "s"} × R$ 1,00
+              </p>
+            </div>
+
+          </div>
+
+          <div className="mt-5 rounded-xl border border-slate-800 bg-slate-950 px-4 py-3">
+            <p className="text-xs text-slate-500">
+              Regra financeira
+            </p>
+
+            <p className="text-sm text-slate-300 mt-1">
+              A receita do GiroExpress é calculada exclusivamente pelas entregas concluídas:
+              <strong className="text-emerald-400">
+                {" "}quantidade de entregas × R$ 1,00
+              </strong>.
+            </p>
+          </div>
+
+        </section>
+
+        {/* =====================================================
+            HISTÓRICO DA RECEITA DO GIROEXPRESS
+            ===================================================== */}
+        <section className="bg-slate-900 border border-slate-800 rounded-2xl p-6">
+
+          <div className="flex items-center gap-3 mb-5">
+            <div className="w-10 h-10 rounded-xl bg-emerald-500/10 flex items-center justify-center">
+              <DollarSign className="w-5 h-5 text-emerald-400" />
+            </div>
+
+            <div>
+              <h2 className="text-lg font-semibold text-white">
+                Histórico da receita do GiroExpress
+              </h2>
+
+              <p className="text-sm text-slate-400 mt-1">
+                Receita de R$ 1,00 por entrega em cada ciclo já fechado.
+              </p>
+            </div>
+          </div>
+
+          {giroHistory.length === 0 ? (
+            <div className="rounded-xl border border-dashed border-slate-700 p-8 text-center">
+              <p className="text-slate-400">
+                Nenhum ciclo fechado para exibir a receita do GiroExpress.
+              </p>
+            </div>
+          ) : (
+            <div className="overflow-x-auto rounded-xl border border-slate-800">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-slate-800 bg-slate-950 text-left">
+                    <th className="px-4 py-3 text-slate-500 font-medium">
+                      Ciclo
+                    </th>
+                    <th className="px-4 py-3 text-slate-500 font-medium">
+                      Corridas
+                    </th>
+                    <th className="px-4 py-3 text-slate-500 font-medium">
+                      A receber das lojas
+                    </th>
+                    <th className="px-4 py-3 text-slate-500 font-medium">
+                      Receita GiroExpress
+                    </th>
+                  </tr>
+                </thead>
+
+                <tbody>
+                  {giroHistory.map((item, index) => (
+                    <tr
+                      key={`giro-history-${item.cycle_label}-${index}`}
+                      className="border-b border-slate-800/70 last:border-0"
+                    >
+                      <td className="px-4 py-4 text-white font-medium">
+                        {item.cycle_label}
+                      </td>
+
+                      <td className="px-4 py-4 text-slate-300">
+                        {item.deliveries}
+                      </td>
+
+                      <td className="px-4 py-4 text-blue-400 font-semibold">
+                        {formatBRL(item.receivable)}
+                      </td>
+
+                      <td className="px-4 py-4 text-emerald-400 font-bold">
+                        {formatBRL(item.revenue)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
         </section>
 
         <section className="bg-slate-900 border border-slate-800 rounded-2xl p-6">
@@ -4044,3 +4293,4 @@ export default function AdminDashboard() {
   );
 }
 
+git add .

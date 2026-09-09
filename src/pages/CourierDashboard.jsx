@@ -2636,6 +2636,18 @@ function DeliveryCard({
       )
       .trim();
 
+  const requestDate =
+    d.created_at ||
+    d.completed_at ||
+    d.delivered_at ||
+    d.updated_at ||
+    "";
+
+  const formattedRequestDate =
+    requestDate
+      ? new Date(requestDate).toLocaleDateString("pt-BR")
+      : "—";
+
   const storeName =
     String(
       d.store_name ||
@@ -2698,10 +2710,16 @@ function DeliveryCard({
         d._id
       }`}
     >
-      <div className="flex items-center justify-between">
-        <span className="font-mono text-xs font-bold text-orange-400 bg-orange-500/10 px-2.5 py-1 rounded border border-orange-500/20">
-          {orderCode}
-        </span>
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="font-mono text-xs font-bold text-orange-400 bg-orange-500/10 px-2.5 py-1 rounded border border-orange-500/20">
+            {orderCode}
+          </span>
+
+          <span className="text-[11px] font-semibold text-slate-400 bg-slate-900 px-2.5 py-1 rounded border border-slate-800 whitespace-nowrap">
+            📅 {formattedRequestDate}
+          </span>
+        </div>
 
         <span className="text-xs font-bold text-white bg-slate-800 px-3 py-1 rounded-full">
           {storeName}
