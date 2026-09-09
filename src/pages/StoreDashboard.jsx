@@ -10,6 +10,11 @@ import {
   Plus,
   Trash2,
   MessageSquare,
+  CalendarDays,
+  DollarSign,
+  Bike,
+  Package,
+  Loader2,
 } from "lucide-react";
 import {
   api,
@@ -18,6 +23,15 @@ import {
 } from "../lib/api";
 import { toast } from "react-hot-toast";
 import { useAuth } from "../context/AuthContext";
+
+
+function formatCycleDate(value) {
+  if (!value) return "—";
+  const text = String(value);
+  const match = text.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (!match) return text;
+  return `${match[3]}/${match[2]}/${match[1]}`;
+}
 
 export default function StoreDashboard() {
   const { user: currentUser } = useAuth();
@@ -30,6 +44,12 @@ export default function StoreDashboard() {
 
   const [products, setProducts] =
     useState([]);
+
+  const [billingCycle, setBillingCycle] =
+    useState(null);
+
+  const [billingLoading, setBillingLoading] =
+    useState(false);
 
   const [loading, setLoading] =
     useState(true);
@@ -123,7 +143,7 @@ export default function StoreDashboard() {
         setLoading(true);
       }
 
-      const [delRes, prodRes] =
+      const [delRes, prodRes, billingRes] =
         await Promise.all([
           api
             .get("/deliveries")
@@ -136,6 +156,12 @@ export default function StoreDashboard() {
             .catch(() => ({
               data: [],
             })),
+
+          api
+            .get("/billing/store/current")
+            .catch(() => ({
+              data: null,
+            })),
         ]);
 
       const delData =
@@ -143,6 +169,15 @@ export default function StoreDashboard() {
 
       const prodData =
         prodRes?.data;
+
+      const billingData =
+        billingRes?.data;
+
+      if (billingData?.ok) {
+        setBillingCycle(billingData);
+      } else if (billingData?.period_start) {
+        setBillingCycle(billingData);
+      }
 
       if (Array.isArray(delData)) {
         setDeliveries(delData);
@@ -1414,6 +1449,23 @@ export default function StoreDashboard() {
             Gerenciar Cardápio /
             Produtos
           </button>
+
+          <button
+            type="button"
+            onClick={() =>
+              setActiveTab(
+                "billing"
+              )
+            }
+            className={`pb-3 font-medium text-sm transition border-b-2 ${
+              activeTab ===
+              "billing"
+                ? "border-orange-500 text-orange-400"
+                : "border-transparent text-slate-400 hover:text-white"
+            }`}
+          >
+            Faturamento
+          </button>
         </div>
 
         {/* =====================================================
@@ -1626,10 +1678,6 @@ export default function StoreDashboard() {
                                 )}
                               </p>
 
-                              <span className="text-xs text-slate-500">
-                                Taxa adm:
-                                R$ 1,00
-                              </span>
 
                             </div>
 
@@ -1699,6 +1747,116 @@ export default function StoreDashboard() {
               )}
 
             </div>
+          </div>
+        )}
+
+        {/* =====================================================
+            FATURAMENTO / CICLO ATUAL
+        ====================================================== */}
+
+        {activeTab ===
+          "billing" && (
+          <div className="space-y-6">
+
+            {billingLoading ? (
+              <div className="flex justify-center py-12">
+                <Loader2 className="w-8 h-8 animate-spin text-orange-500" />
+              </div>
+            ) : (
+              <>
+                <div className="bg-slate-900 border border-orange-500/20 rounded-2xl p-6">
+                  <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <CalendarDays className="w-5 h-5 text-orange-400" />
+                        <h2 className="text-xl font-black text-white">
+                          Ciclo atual
+                        </h2>
+                      </div>
+                      <p className="text-sm text-slate-400 mt-1">
+                        {billingCycle?.period_start && billingCycle?.period_end
+                          ? `${formatCycleDate(billingCycle.period_start)} a ${formatCycleDate(billingCycle.period_end)}`
+                          : "Carregando período..."}
+                      </p>
+                    </div>
+                    <span className="text-xs font-bold px-3 py-2 rounded-xl bg-orange-500/10 border border-orange-500/20 text-orange-300">
+                      Fechamento: {billingCycle?.closing_weekday_label || "—"}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div className="bg-slate-900 border border-slate-800 p-5 rounded-2xl">
+                    <div className="flex items-center gap-2 text-orange-400">
+                      <Package className="w-5 h-5" />
+                      <span className="text-xs uppercase font-bold tracking-wide">Corridas</span>
+                    </div>
+                    <p className="text-2xl font-black text-white mt-2">
+                      {Number(billingCycle?.total_deliveries || 0)}
+                    </p>
+                    <p className="text-xs text-slate-500 mt-1">No ciclo atual</p>
+                  </div>
+
+                  <div className="bg-slate-900 border border-slate-800 p-5 rounded-2xl">
+                    <div className="flex items-center gap-2 text-emerald-400">
+                      <DollarSign className="w-5 h-5" />
+                      <span className="text-xs uppercase font-bold tracking-wide">Bruto</span>
+                    </div>
+                    <p className="text-2xl font-black text-white mt-2">
+                      R$ {Number(billingCycle?.total_gross || 0).toFixed(2).replace(".", ",")}
+                    </p>
+                    <p className="text-xs text-slate-500 mt-1">Movimentação das corridas</p>
+                  </div>
+
+                  <div className="bg-slate-900 border border-slate-800 p-5 rounded-2xl">
+                    <div className="flex items-center gap-2 text-orange-400">
+                      <DollarSign className="w-5 h-5" />
+                      <span className="text-xs uppercase font-bold tracking-wide">Valor a pagar</span>
+                    </div>
+                    <p className="text-2xl font-black text-white mt-2">
+                      R$ {Number(billingCycle?.total_to_pay || 0).toFixed(2).replace(".", ",")}
+                    </p>
+                    <p className="text-xs text-slate-500 mt-1">Calculado pelas corridas do ciclo</p>
+                  </div>
+                </div>
+
+                <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6">
+                  <div className="flex items-center justify-between gap-3 mb-4">
+                    <div>
+                      <h3 className="font-bold text-lg text-white">Movimentação do ciclo</h3>
+                      <p className="text-xs text-slate-500 mt-1">Cada corrida concluída aparece com a data e o entregador.</p>
+                    </div>
+                  </div>
+
+                  {(billingCycle?.delivery_details || []).length === 0 ? (
+                    <p className="text-sm text-slate-400 py-6 text-center">Nenhuma corrida concluída neste ciclo.</p>
+                  ) : (
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-sm">
+                        <thead>
+                          <tr className="border-b border-slate-800 text-slate-500 text-left">
+                            <th className="py-3 pr-4">Data</th>
+                            <th className="py-3 pr-4">Corrida</th>
+                            <th className="py-3 pr-4">Entregador</th>
+                            <th className="py-3 text-right">Valor</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {(billingCycle?.delivery_details || []).map((item) => (
+                            <tr key={item.id || item.code} className="border-b border-slate-900 last:border-0">
+                              <td className="py-3 pr-4 text-slate-300 whitespace-nowrap">{formatCycleDate(item.date)}</td>
+                              <td className="py-3 pr-4 text-white font-bold">{item.code || "—"}</td>
+                              <td className="py-3 pr-4 text-slate-300">{item.courier_name || "Entregador"}</td>
+                              <td className="py-3 text-right text-emerald-400 font-bold whitespace-nowrap">R$ {Number(item.gross_price || 0).toFixed(2).replace(".", ",")}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              </>
+            )}
           </div>
         )}
 

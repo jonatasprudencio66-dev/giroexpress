@@ -3986,13 +3986,16 @@ async def calculate_store_cycle(
     period_start: date,
     period_end: date,
 ) -> dict:
+    """Calcula o ciclo real da loja.
+
+    A data usada para o ciclo é a conclusão da entrega. Para registros
+    antigos sem completed_at, usamos created_at como fallback.
+    """
 
     deliveries = (
         await db.deliveries.find(
             {
-                "store_id": str(
-                    store_id
-                ),
+                "store_id": str(store_id),
                 "status": {
                     "$in": [
                         "completed",
@@ -4002,42 +4005,77 @@ async def calculate_store_cycle(
                     ]
                 },
             }
-        ).to_list(None)
+        ).sort("completed_at", 1).to_list(None)
     )
 
     count = 0
+    total_gross = 0.0
+    delivery_details = []
 
     for delivery in deliveries:
-
-        created_at = parse_iso_datetime(
-            delivery.get(
-                "created_at"
-            )
+        completed_at = parse_iso_datetime(
+            delivery.get("completed_at")
         )
+        created_at = parse_iso_datetime(
+            delivery.get("created_at")
+        )
+        billing_datetime = completed_at or created_at
 
-        if not created_at:
+        if not billing_datetime:
             continue
 
-        delivery_date = (
-            created_at.date()
+        delivery_date = billing_datetime.date()
+
+        if not (period_start <= delivery_date <= period_end):
+            continue
+
+        try:
+            gross_price = round(
+                float(
+                    delivery.get(
+                        "gross_price",
+                        delivery.get("price", 0),
+                    ) or 0
+                ),
+                2,
+            )
+        except Exception:
+            gross_price = 0.0
+
+        count += 1
+        total_gross += gross_price
+
+        delivery_id = str(
+            delivery.get("_id", delivery.get("id", ""))
         )
 
-        if (
-            period_start
-            <= delivery_date
-            <= period_end
-        ):
+        delivery_details.append(
+            {
+                "id": delivery_id,
+                "_id": delivery_id,
+                "code": delivery.get("code") or delivery_id,
+                "date": billing_datetime.isoformat(),
+                "completed_at": delivery.get("completed_at"),
+                "created_at": delivery.get("created_at"),
+                "courier_id": delivery.get("courier_id"),
+                "courier_name": delivery.get(
+                    "courier_name",
+                    "Entregador",
+                ),
+                "gross_price": gross_price,
+                "client_name": delivery.get("client_name"),
+            }
+        )
 
-            count += 1
-
-    total_fee = round(
-        count * PLATFORM_FEE,
-        2,
-    )
+    total_gross = round(total_gross, 2)
+    total_fee = round(count * PLATFORM_FEE, 2)
 
     return {
         "total_deliveries": count,
+        "total_gross": total_gross,
         "total_fee": total_fee,
+        "total_to_pay": total_fee,
+        "delivery_details": delivery_details,
     }
 
 
@@ -4266,6 +4304,109 @@ async def calculate_courier_cycle(
         "total_platform_fee": total_platform_fee,
         "total_courier": total_courier,
         "delivery_details": delivery_details,
+    }
+
+
+# =========================================================
+# CICLO ATUAL DA LOJA - ÁREA DA LOJA
+# =========================================================
+
+@app.get("/billing/store/current")
+@app.get("/api/billing/store/current")
+async def get_store_current_billing(
+    user: dict = Depends(
+        require_roles("store")
+    ),
+):
+    store_id = str(user.get("_id", user.get("id", "")))
+
+    closing_weekday = (await db.users.find_one({"id": store_id}) or {}).get("billing_closing_weekday", DEFAULT_BILLING_WEEKDAY)
+    today = datetime.now(BRAZIL_TZ).date()
+    period_start, period_end = cycle_for_date(
+        today,
+        closing_weekday,
+    )
+
+    totals = await calculate_store_cycle(
+        store_id,
+        period_start,
+        period_end,
+    )
+
+    # Importante: a loja recebe apenas o valor final a pagar.
+    # A taxa administrativa individual não é exposta nesta rota.
+    return {
+        "ok": True,
+        "period_start": period_start.isoformat(),
+        "period_end": period_end.isoformat(),
+        "closing_weekday": closing_weekday,
+        "closing_weekday_label": billing_weekday_label(
+            closing_weekday
+        ),
+        "total_deliveries": int(totals.get("total_deliveries", 0)),
+        "total_gross": round(float(totals.get("total_gross", 0) or 0), 2),
+        "total_to_pay": round(float(totals.get("total_to_pay", 0) or 0), 2),
+        "delivery_details": [
+            {
+                "id": item.get("id"),
+                "code": item.get("code"),
+                "date": item.get("date"),
+                "courier_id": item.get("courier_id"),
+                "courier_name": item.get("courier_name", "Entregador"),
+                "gross_price": round(float(item.get("gross_price", 0) or 0), 2),
+            }
+            for item in totals.get("delivery_details", [])
+        ],
+    }
+
+
+# =========================================================
+# CICLO ATUAL DO ENTREGADOR - ÁREA DO ENTREGADOR
+# =========================================================
+
+@app.get("/billing/courier/current")
+@app.get("/api/billing/courier/current")
+async def get_courier_current_billing(
+    user: dict = Depends(
+        require_roles("courier")
+    ),
+):
+    courier_id = str(user.get("_id", user.get("id", "")))
+
+    closing_weekday = int(
+        user.get(
+            "billing_closing_weekday",
+            DEFAULT_BILLING_WEEKDAY,
+        )
+    )
+    if closing_weekday < 0 or closing_weekday > 6:
+        closing_weekday = DEFAULT_BILLING_WEEKDAY
+
+    today = datetime.now(BRAZIL_TZ).date()
+    period_start, period_end = cycle_for_date(
+        today,
+        closing_weekday,
+    )
+
+    totals = await calculate_courier_cycle(
+        courier_id,
+        period_start,
+        period_end,
+    )
+
+    return {
+        "ok": True,
+        "period_start": period_start.isoformat(),
+        "period_end": period_end.isoformat(),
+        "closing_weekday": closing_weekday,
+        "closing_weekday_label": billing_weekday_label(
+            closing_weekday
+        ),
+        "total_deliveries": totals["total_deliveries"],
+        "total_gross": totals["total_gross"],
+        "total_courier": totals["total_courier"],
+        "total_to_pay": totals["total_courier"],
+        "delivery_details": totals["delivery_details"],
     }
 
 

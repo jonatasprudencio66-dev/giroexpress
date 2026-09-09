@@ -256,11 +256,23 @@ function showBrowserNotification(
  * DASHBOARD DO MOTOBOY
  * ============================================================ */
 
+
+function formatCycleDate(value) {
+  if (!value) return "—";
+  const text = String(value);
+  const match = text.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (!match) return text;
+  return `${match[3]}/${match[2]}/${match[1]}`;
+}
+
 export default function CourierDashboard() {
   const { user, refresh } = useAuth();
 
   const [deliveries, setDeliveries] =
     useState([]);
+
+  const [billingCycle, setBillingCycle] =
+    useState(null);
 
   const [loading, setLoading] =
     useState(true);
@@ -797,6 +809,27 @@ export default function CourierDashboard() {
           Array.isArray(data)
             ? data
             : [];
+
+        try {
+          const billingResponse =
+            await api.get(
+              "/billing/courier/current"
+            );
+
+          if (
+            mountedRef.current &&
+            billingResponse?.data?.ok
+          ) {
+            setBillingCycle(
+              billingResponse.data
+            );
+          }
+        } catch (billingError) {
+          console.warn(
+            "[GiroExpress] Não foi possível carregar o ciclo financeiro:",
+            billingError
+          );
+        }
 
         const pending =
           nextDeliveries.filter(
@@ -1890,7 +1923,7 @@ export default function CourierDashboard() {
               value={formatBRL(
                 netToday
               )}
-              sub="Taxa admin de R$ 1,00 já descontada"
+              sub="Valor líquido das corridas de hoje"
               testid="courier-earnings"
             />
 
@@ -1943,7 +1976,88 @@ export default function CourierDashboard() {
           </div>
 
           {/* ==================================================
-              5. CAPACIDADE DA ROTA
+              5. CICLO FINANCEIRO ATUAL
+          ================================================== */}
+
+          <div className="mb-6 bg-slate-900 border border-orange-500/20 rounded-2xl p-6" data-testid="courier-billing-cycle">
+            <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-5">
+              <div>
+                <div className="flex items-center gap-2">
+                  <DollarSign className="w-5 h-5 text-orange-400" />
+                  <h2 className="text-lg font-black text-white">Ciclo financeiro atual</h2>
+                </div>
+                <p className="text-sm text-slate-400 mt-1">
+                  {billingCycle?.period_start && billingCycle?.period_end
+                    ? `${formatCycleDate(billingCycle.period_start)} a ${formatCycleDate(billingCycle.period_end)}`
+                    : "Carregando período..."}
+                </p>
+              </div>
+
+              <span className="text-xs font-bold px-3 py-2 rounded-xl bg-orange-500/10 border border-orange-500/20 text-orange-300">
+                Fechamento: {billingCycle?.closing_weekday_label || "—"}
+              </span>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-5">
+              <StatCard
+                icon={<Package className="w-5 h-5" />}
+                label="Corridas"
+                value={Number(billingCycle?.total_deliveries || 0)}
+                sub="No ciclo atual"
+              />
+
+              <StatCard
+                icon={<DollarSign className="w-5 h-5" />}
+                label="Bruto"
+                value={formatBRL(Number(billingCycle?.total_gross || 0))}
+                sub="Movimentação das corridas"
+              />
+
+              <StatCard
+                icon={<DollarSign className="w-5 h-5" />}
+                label="Total a receber"
+                value={formatBRL(Number(billingCycle?.total_to_pay ?? billingCycle?.total_courier ?? 0))}
+                sub="Valor líquido do ciclo"
+              />
+            </div>
+
+            <div className="border border-slate-800 rounded-2xl overflow-hidden">
+              <div className="px-4 py-4 border-b border-slate-800">
+                <h3 className="font-bold text-white">Corridas do ciclo</h3>
+                <p className="text-xs text-slate-500 mt-1">Data, corrida, loja e valor bruto.</p>
+              </div>
+
+              {(billingCycle?.delivery_details || []).length === 0 ? (
+                <p className="text-sm text-slate-400 py-8 text-center">Nenhuma corrida concluída neste ciclo.</p>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b border-slate-800 text-slate-500 text-left">
+                        <th className="py-3 px-4">Data</th>
+                        <th className="py-3 px-4">Corrida</th>
+                        <th className="py-3 px-4">Loja</th>
+                        <th className="py-3 px-4 text-right">Valor</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {(billingCycle?.delivery_details || []).map((item) => (
+                        <tr key={item.id || item.code} className="border-b border-slate-900 last:border-0">
+                          <td className="py-3 px-4 text-slate-300 whitespace-nowrap">{formatCycleDate(item.completed_at || item.date || item.created_at)}</td>
+                          <td className="py-3 px-4 text-white font-bold">{item.code || "—"}</td>
+                          <td className="py-3 px-4 text-slate-300">{item.store_name || "Loja"}</td>
+                          <td className="py-3 px-4 text-right text-emerald-400 font-bold whitespace-nowrap">{formatBRL(Number(item.gross_price || 0))}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* ==================================================
+              6. CAPACIDADE DA ROTA
           ================================================== */}
 
           <div
