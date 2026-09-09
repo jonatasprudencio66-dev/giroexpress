@@ -1,3 +1,4 @@
+
 import React, {
   useCallback,
   useEffect,
@@ -12,9 +13,11 @@ import {
   MessageSquare,
   CalendarDays,
   DollarSign,
-  Bike,
   Package,
   Loader2,
+  CreditCard,
+  Save,
+  CheckCircle2,
 } from "lucide-react";
 import {
   api,
@@ -24,13 +27,69 @@ import {
 import { toast } from "react-hot-toast";
 import { useAuth } from "../context/AuthContext";
 
-
 function formatCycleDate(value) {
   if (!value) return "—";
+
   const text = String(value);
-  const match = text.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  const match = text.match(
+    /^(\d{4})-(\d{2})-(\d{2})/
+  );
+
   if (!match) return text;
+
   return `${match[3]}/${match[2]}/${match[1]}`;
+}
+
+function normalizeAccountData(data) {
+  const account =
+    data?.account ||
+    data?.payment_account ||
+    data?.data ||
+    data ||
+    {};
+
+  return {
+    holder_name:
+      account.holder_name ||
+      account.account_holder ||
+      account.holder ||
+      "",
+
+    document:
+      account.document ||
+      account.cpf_cnpj ||
+      account.cpf ||
+      account.cnpj ||
+      "",
+
+    bank:
+      account.bank ||
+      account.bank_name ||
+      "",
+
+    agency:
+      account.agency ||
+      "",
+
+    account:
+      account.account ||
+      account.account_number ||
+      "",
+
+    account_type:
+      account.account_type ||
+      "corrente",
+
+    pix_key_type:
+      account.pix_key_type ||
+      account.pix_type ||
+      "",
+
+    pix_key:
+      account.pix_key ||
+      account.pix ||
+      "",
+  };
 }
 
 export default function StoreDashboard() {
@@ -54,6 +113,27 @@ export default function StoreDashboard() {
   const [loading, setLoading] =
     useState(true);
 
+  const [accountLoading, setAccountLoading] =
+    useState(false);
+
+  const [accountSaving, setAccountSaving] =
+    useState(false);
+
+  const [accountSaved, setAccountSaved] =
+    useState(false);
+
+  const [accountForm, setAccountForm] =
+    useState({
+      holder_name: "",
+      document: "",
+      bank: "",
+      agency: "",
+      account: "",
+      account_type: "corrente",
+      pix_key_type: "",
+      pix_key: "",
+    });
+
   const [deliveryModal, setDeliveryModal] =
     useState(false);
 
@@ -75,17 +155,15 @@ export default function StoreDashboard() {
   const activeChatDeliveryRef =
     useRef(null);
 
-  // IMPORTANTE:
-  // Mantém a versão mais recente das entregas disponível
-  // para o WebSocket sem fazer o WebSocket depender
-  // diretamente do estado deliveries.
   const deliveriesRef =
     useRef([]);
 
-  // Controla se é o primeiro carregamento.
-  // Assim o "Carregando..." não aparece a cada polling.
   const firstLoadRef =
     useRef(true);
+
+  // ============================================================
+  // FORMULÁRIO DE ENTREGA
+  // ============================================================
 
   const [deliveryForm, setDeliveryForm] =
     useState({
@@ -99,6 +177,10 @@ export default function StoreDashboard() {
       delivery_type: "city",
     });
 
+  // ============================================================
+  // FORMULÁRIO DE PRODUTO
+  // ============================================================
+
   const [productForm, setProductForm] =
     useState({
       name: "",
@@ -108,14 +190,14 @@ export default function StoreDashboard() {
     });
 
   // ============================================================
-  // REFERÊNCIA DO ÁUDIO
+  // ÁUDIO
   // ============================================================
 
   const audioContextRef =
     useRef(null);
 
   // ============================================================
-  // REFERÊNCIA DO CHAT ABERTO
+  // CHAT ABERTO
   // ============================================================
 
   useEffect(() => {
@@ -124,7 +206,7 @@ export default function StoreDashboard() {
   }, [activeChatDelivery]);
 
   // ============================================================
-  // MANTER REFERÊNCIA DAS ENTREGAS ATUALIZADA
+  // REFERÊNCIA DAS ENTREGAS
   // ============================================================
 
   useEffect(() => {
@@ -133,18 +215,187 @@ export default function StoreDashboard() {
   }, [deliveries]);
 
   // ============================================================
+  // CARREGAR CONTA / PIX
+  // ============================================================
+
+  const loadAccount = useCallback(
+    async () => {
+      try {
+        setAccountLoading(true);
+
+        const response =
+          await api.get(
+            "/me/account"
+          );
+
+        const normalized =
+          normalizeAccountData(
+            response?.data
+          );
+
+        setAccountForm(
+          normalized
+        );
+
+        setAccountSaved(
+          Boolean(
+            normalized.holder_name ||
+              normalized.pix_key ||
+              normalized.bank
+          )
+        );
+      } catch (error) {
+        console.warn(
+          "[GiroExpress] Não foi possível carregar Conta/PIX:",
+          error
+        );
+      } finally {
+        setAccountLoading(false);
+      }
+    },
+    []
+  );
+
+  // ============================================================
+  // SALVAR CONTA / PIX
+  // ============================================================
+
+  const handleSaveAccount =
+    async (event) => {
+      event.preventDefault();
+
+      if (
+        !accountForm.holder_name.trim()
+      ) {
+        toast.error(
+          "Informe o nome do titular."
+        );
+        return;
+      }
+
+      if (
+        !accountForm.document.trim()
+      ) {
+        toast.error(
+          "Informe o CPF/CNPJ."
+        );
+        return;
+      }
+
+      if (
+        !accountForm.bank.trim()
+      ) {
+        toast.error(
+          "Informe o banco."
+        );
+        return;
+      }
+
+      if (
+        !accountForm.agency.trim()
+      ) {
+        toast.error(
+          "Informe a agência."
+        );
+        return;
+      }
+
+      if (
+        !accountForm.account.trim()
+      ) {
+        toast.error(
+          "Informe o número da conta."
+        );
+        return;
+      }
+
+      if (
+        !accountForm.pix_key_type
+      ) {
+        toast.error(
+          "Selecione o tipo da chave PIX."
+        );
+        return;
+      }
+
+      if (
+        !accountForm.pix_key.trim()
+      ) {
+        toast.error(
+          "Informe a chave PIX."
+        );
+        return;
+      }
+
+      try {
+        setAccountSaving(true);
+
+        await api.post(
+          "/me/account",
+          {
+            holder_name:
+              accountForm.holder_name.trim(),
+
+            document:
+              accountForm.document.trim(),
+
+            bank:
+              accountForm.bank.trim(),
+
+            agency:
+              accountForm.agency.trim(),
+
+            account:
+              accountForm.account.trim(),
+
+            account_type:
+              accountForm.account_type,
+
+            pix_key_type:
+              accountForm.pix_key_type,
+
+            pix_key:
+              accountForm.pix_key.trim(),
+          }
+        );
+
+        setAccountSaved(true);
+
+        toast.success(
+          "Conta / PIX salvo com sucesso!"
+        );
+      } catch (error) {
+        console.error(
+          "[GiroExpress] Erro ao salvar Conta/PIX:",
+          error
+        );
+
+        toast.error(
+          apiError(error)
+        );
+      } finally {
+        setAccountSaving(false);
+      }
+    };
+
+  // ============================================================
   // CARREGAR DADOS
   // ============================================================
 
-  const loadData = useCallback(async () => {
-    try {
-      // Só mostra carregamento visual no primeiro carregamento.
-      if (firstLoadRef.current) {
-        setLoading(true);
-      }
+  const loadData =
+    useCallback(async () => {
+      try {
+        if (
+          firstLoadRef.current
+        ) {
+          setLoading(true);
+        }
 
-      const [delRes, prodRes, billingRes] =
-        await Promise.all([
+        const [
+          delRes,
+          prodRes,
+          billingRes,
+        ] = await Promise.all([
           api
             .get("/deliveries")
             .catch(() => ({
@@ -158,73 +409,89 @@ export default function StoreDashboard() {
             })),
 
           api
-            .get("/billing/store/current")
+            .get(
+              "/billing/store/current"
+            )
             .catch(() => ({
               data: null,
             })),
         ]);
 
-      const delData =
-        delRes?.data;
+        const delData =
+          delRes?.data;
 
-      const prodData =
-        prodRes?.data;
+        const prodData =
+          prodRes?.data;
 
-      const billingData =
-        billingRes?.data;
+        const billingData =
+          billingRes?.data;
 
-      if (billingData?.ok) {
-        setBillingCycle(billingData);
-      } else if (billingData?.period_start) {
-        setBillingCycle(billingData);
-      }
+        if (billingData?.ok) {
+          setBillingCycle(
+            billingData
+          );
+        } else if (
+          billingData?.period_start
+        ) {
+          setBillingCycle(
+            billingData
+          );
+        }
 
-      if (Array.isArray(delData)) {
-        setDeliveries(delData);
-      } else if (
-        Array.isArray(
-          delData?.deliveries
-        )
-      ) {
-        setDeliveries(
-          delData.deliveries
+        if (
+          Array.isArray(delData)
+        ) {
+          setDeliveries(
+            delData
+          );
+        } else if (
+          Array.isArray(
+            delData?.deliveries
+          )
+        ) {
+          setDeliveries(
+            delData.deliveries
+          );
+        } else {
+          setDeliveries([]);
+        }
+
+        if (
+          Array.isArray(prodData)
+        ) {
+          setProducts(
+            prodData
+          );
+        } else if (
+          Array.isArray(
+            prodData?.products
+          )
+        ) {
+          setProducts(
+            prodData.products
+          );
+        } else {
+          setProducts([]);
+        }
+
+        firstLoadRef.current =
+          false;
+      } catch (error) {
+        console.error(
+          "Erro ao carregar dados:",
+          error
         );
-      } else {
-        setDeliveries([]);
-      }
 
-      if (Array.isArray(prodData)) {
-        setProducts(prodData);
-      } else if (
-        Array.isArray(
-          prodData?.products
-        )
-      ) {
-        setProducts(
-          prodData.products
+        toast.error(
+          apiError(error)
         );
-      } else {
-        setProducts([]);
+      } finally {
+        setLoading(false);
       }
-
-      firstLoadRef.current =
-        false;
-    } catch (error) {
-      console.error(
-        "Erro ao carregar dados:",
-        error
-      );
-
-      toast.error(
-        apiError(error)
-      );
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+    }, []);
 
   // ============================================================
-  // LIBERAR ÁUDIO APÓS INTERAÇÃO DO USUÁRIO
+  // LIBERAR ÁUDIO
   // ============================================================
 
   useEffect(() => {
@@ -239,14 +506,17 @@ export default function StoreDashboard() {
             return;
           }
 
-          if (!audioContextRef.current) {
+          if (
+            !audioContextRef.current
+          ) {
             audioContextRef.current =
               new AudioContext();
           }
 
           if (
             audioContextRef.current
-              .state === "suspended"
+              .state ===
+            "suspended"
           ) {
             await audioContextRef.current.resume();
           }
@@ -292,7 +562,7 @@ export default function StoreDashboard() {
   }, []);
 
   // ============================================================
-  // PEDIR PERMISSÃO DE NOTIFICAÇÃO
+  // NOTIFICAÇÕES
   // ============================================================
 
   useEffect(() => {
@@ -348,7 +618,7 @@ export default function StoreDashboard() {
   }, []);
 
   // ============================================================
-  // SOM DA NOTIFICAÇÃO
+  // SOM
   // ============================================================
 
   const playBeep =
@@ -359,14 +629,12 @@ export default function StoreDashboard() {
           window.webkitAudioContext;
 
         if (!AudioContext) {
-          console.warn(
-            "[GiroExpress] AudioContext não disponível."
-          );
-
           return;
         }
 
-        if (!audioContextRef.current) {
+        if (
+          !audioContextRef.current
+        ) {
           audioContextRef.current =
             new AudioContext();
         }
@@ -433,10 +701,6 @@ export default function StoreDashboard() {
         oscillator.stop(
           now + 0.5
         );
-
-        console.log(
-          "[GiroExpress] 🔊 Som de nova mensagem executado."
-        );
       } catch (error) {
         console.warn(
           "[GiroExpress] Não foi possível reproduzir o som:",
@@ -460,10 +724,6 @@ export default function StoreDashboard() {
           if (
             !("Notification" in window)
           ) {
-            console.warn(
-              "[GiroExpress] Este navegador não suporta notificações."
-            );
-
             return;
           }
 
@@ -471,11 +731,6 @@ export default function StoreDashboard() {
             Notification.permission !==
             "granted"
           ) {
-            console.warn(
-              "[GiroExpress] Notificação sem permissão. Permissão atual:",
-              Notification.permission
-            );
-
             return;
           }
 
@@ -501,10 +756,6 @@ export default function StoreDashboard() {
                 notification.close();
 
                 if (deliveryId) {
-                  // IMPORTANTE:
-                  // Usa a ref em vez do estado deliveries.
-                  // Isso evita recriar o WebSocket quando
-                  // as entregas forem atualizadas.
                   const delivery =
                     deliveriesRef.current.find(
                       (item) =>
@@ -520,9 +771,10 @@ export default function StoreDashboard() {
                   if (delivery) {
                     setUnreadMessages(
                       (previous) => {
-                        const updated = {
-                          ...previous,
-                        };
+                        const updated =
+                          {
+                            ...previous,
+                          };
 
                         delete updated[
                           String(
@@ -547,10 +799,6 @@ export default function StoreDashboard() {
               notification.close();
             } catch (_) {}
           }, 7000);
-
-          console.log(
-            "[GiroExpress] 🔔 Notificação do navegador exibida."
-          );
         } catch (error) {
           console.warn(
             "[GiroExpress] Erro na notificação:",
@@ -562,8 +810,7 @@ export default function StoreDashboard() {
     );
 
   // ============================================================
-  // WEBSOCKET DA LOJA
-  // MOTOBOY -> LOJA
+  // WEBSOCKET
   // ============================================================
 
   useEffect(() => {
@@ -576,10 +823,6 @@ export default function StoreDashboard() {
       currentUser._id;
 
     if (!userId) {
-      console.warn(
-        "[GiroExpress] Usuário da loja sem ID para WebSocket."
-      );
-
       return undefined;
     }
 
@@ -590,18 +833,12 @@ export default function StoreDashboard() {
     let reconnectTimer = null;
     let isUnmounted = false;
 
-    // ==========================================================
-    // CONECTAR
-    // ==========================================================
-
     const connectWebSocket =
       () => {
         if (isUnmounted) {
           return;
         }
 
-        // Evita criar uma segunda conexão se já houver
-        // uma conexão ativa ou em processo de conexão.
         if (
           ws &&
           (
@@ -615,29 +852,12 @@ export default function StoreDashboard() {
         }
 
         try {
-          console.log(
-            "[GiroExpress] ======================================="
-          );
-
-          console.log(
-            "[GiroExpress] Conectando WebSocket da loja..."
-          );
-
-          console.log(
-            "[GiroExpress] ID da loja:",
-            normalizedUserId
-          );
-
           ws =
             createUserWebSocket(
               normalizedUserId
             );
 
           if (!ws) {
-            console.warn(
-              "[GiroExpress] WebSocket não foi criado."
-            );
-
             reconnectTimer =
               setTimeout(
                 connectWebSocket,
@@ -647,10 +867,6 @@ export default function StoreDashboard() {
             return;
           }
 
-          // ====================================================
-          // CONECTADO
-          // ====================================================
-
           ws.onopen = () => {
             if (isUnmounted) {
               return;
@@ -659,80 +875,38 @@ export default function StoreDashboard() {
             console.log(
               "[GiroExpress] ✅ WebSocket da loja conectado."
             );
-
-            console.log(
-              "[GiroExpress] Aguardando mensagens do motoboy..."
-            );
           };
-
-          // ====================================================
-          // MENSAGEM RECEBIDA
-          // ====================================================
 
           ws.onmessage = (
             event
           ) => {
             try {
-              console.log(
-                "[GiroExpress] 📩 Evento WebSocket recebido:",
-                event.data
-              );
-
               let data;
 
               try {
                 data = JSON.parse(
                   event.data
                 );
-              } catch (
-                parseError
-              ) {
-                console.warn(
-                  "[GiroExpress] Mensagem WebSocket não é JSON:",
-                  event.data
-                );
-
+              } catch (_) {
                 return;
               }
-
-              console.log(
-                "[GiroExpress] 📩 Dados recebidos:",
-                data
-              );
-
-              // ==================================================
-              // TIPO DA MENSAGEM
-              // ==================================================
 
               const messageType =
                 String(
                   data?.type || ""
                 ).toLowerCase();
 
-              console.log(
-                "[GiroExpress] Tipo recebido:",
-                messageType
-              );
-
               const acceptedType =
                 messageType ===
                   "chat_message" ||
                 messageType ===
                   "message" ||
-                messageType === "";
+                messageType ===
+                  "";
 
               if (!acceptedType) {
-                console.log(
-                  "[GiroExpress] Evento ignorado por tipo:",
-                  messageType
-                );
-
                 return;
               }
-
-              // ==================================================
-              // NÃO ALERTAR A PRÓPRIA LOJA
-              // ==================================================
 
               const senderId =
                 data?.sender_id
@@ -746,16 +920,8 @@ export default function StoreDashboard() {
                 senderId ===
                   normalizedUserId
               ) {
-                console.log(
-                  "[GiroExpress] Mensagem enviada pela própria loja. Ignorando alerta."
-                );
-
                 return;
               }
-
-              // ==================================================
-              // TEXTO
-              // ==================================================
 
               const rawText =
                 data?.text ??
@@ -768,17 +934,8 @@ export default function StoreDashboard() {
                 ).trim();
 
               if (!messageText) {
-                console.warn(
-                  "[GiroExpress] Evento recebido sem texto:",
-                  data
-                );
-
                 return;
               }
-
-              // ==================================================
-              // REMETENTE
-              // ==================================================
 
               const senderName =
                 String(
@@ -798,33 +955,6 @@ export default function StoreDashboard() {
                       data.delivery_id
                     )
                   : null;
-
-              console.log(
-                "[GiroExpress] ======================================="
-              );
-
-              console.log(
-                "[GiroExpress] 💬 NOVA MENSAGEM DO MOTOBOY"
-              );
-
-              console.log(
-                "[GiroExpress] Remetente:",
-                senderName
-              );
-
-              console.log(
-                "[GiroExpress] Mensagem:",
-                messageText
-              );
-
-              console.log(
-                "[GiroExpress] Entrega:",
-                deliveryId
-              );
-
-              // ==================================================
-              // MARCAR COMO NÃO LIDA
-              // ==================================================
 
               if (deliveryId) {
                 const activeDelivery =
@@ -846,34 +976,16 @@ export default function StoreDashboard() {
                   setUnreadMessages(
                     (previous) => ({
                       ...previous,
-
                       [deliveryId]:
                         (previous[
                           deliveryId
                         ] || 0) + 1,
                     })
                   );
-
-                  console.log(
-                    "[GiroExpress] 🔴 Mensagem marcada como não lida:",
-                    deliveryId
-                  );
-                } else {
-                  console.log(
-                    "[GiroExpress] Chat está aberto. Não criando contador."
-                  );
                 }
               }
 
-              // ==================================================
-              // 1. SOM
-              // ==================================================
-
               playBeep();
-
-              // ==================================================
-              // 2. TOAST
-              // ==================================================
 
               toast.success(
                 `💬 Nova mensagem de ${senderName}: ${messageText}`,
@@ -884,85 +996,31 @@ export default function StoreDashboard() {
                 }
               );
 
-              // ==================================================
-              // 3. NOTIFICAÇÃO DO NAVEGADOR
-              // ==================================================
-
               showBrowserNotification(
                 senderName,
                 messageText,
                 deliveryId
               );
 
-              // ==================================================
-              // 4. ATUALIZAR DADOS
-              // ==================================================
-
               loadData();
-
-              // ==================================================
-              // 5. CHAT ABERTO
-              // ==================================================
-
-              if (
-                deliveryId &&
-                activeChatDeliveryRef.current
-              ) {
-                const activeId =
-                  String(
-                    activeChatDeliveryRef.current
-                      .id ||
-                      activeChatDeliveryRef.current
-                        ._id ||
-                      ""
-                  );
-
-                if (
-                  activeId ===
-                  deliveryId
-                ) {
-                  console.log(
-                    "[GiroExpress] Mensagem pertence ao chat aberto."
-                  );
-                }
-              }
             } catch (error) {
               console.error(
-                "[GiroExpress] ❌ Erro ao processar mensagem WebSocket:",
+                "[GiroExpress] Erro ao processar WebSocket:",
                 error
               );
             }
           };
 
-          // ====================================================
-          // ERRO
-          // ====================================================
-
           ws.onerror = (
             error
           ) => {
             console.warn(
-              "[GiroExpress] ⚠️ WebSocket da loja apresentou erro:",
+              "[GiroExpress] WebSocket apresentou erro:",
               error
             );
           };
 
-          // ====================================================
-          // FECHADO
-          // ====================================================
-
-          ws.onclose = (
-            event
-          ) => {
-            console.log(
-              "[GiroExpress] WebSocket da loja desconectado.",
-              {
-                code: event?.code,
-                reason:
-                  event?.reason,
-              }
-            );
-
+          ws.onclose = () => {
             ws = null;
 
             if (
@@ -970,24 +1028,13 @@ export default function StoreDashboard() {
             ) {
               reconnectTimer =
                 setTimeout(
-                  () => {
-                    console.log(
-                      "[GiroExpress] Tentando reconectar WebSocket da loja..."
-                    );
-
-                    connectWebSocket();
-                  },
+                  connectWebSocket,
                   3000
                 );
             }
           };
         } catch (error) {
           ws = null;
-
-          console.warn(
-            "[GiroExpress] Não foi possível conectar ao WebSocket da loja:",
-            error
-          );
 
           if (
             !isUnmounted
@@ -1001,15 +1048,7 @@ export default function StoreDashboard() {
         }
       };
 
-    // ==========================================================
-    // INICIAR
-    // ==========================================================
-
     connectWebSocket();
-
-    // ==========================================================
-    // LIMPEZA
-    // ==========================================================
 
     return () => {
       isUnmounted = true;
@@ -1019,8 +1058,7 @@ export default function StoreDashboard() {
           reconnectTimer
         );
 
-        reconnectTimer =
-          null;
+        reconnectTimer = null;
       }
 
       if (ws) {
@@ -1038,12 +1076,7 @@ export default function StoreDashboard() {
           ) {
             ws.close();
           }
-        } catch (error) {
-          console.warn(
-            "[GiroExpress] Erro ao fechar WebSocket:",
-            error
-          );
-        }
+        } catch (_) {}
 
         ws = null;
       }
@@ -1056,7 +1089,7 @@ export default function StoreDashboard() {
   ]);
 
   // ============================================================
-  // ATUALIZAÇÃO AUTOMÁTICA
+  // POLLING
   // ============================================================
 
   useEffect(() => {
@@ -1073,6 +1106,19 @@ export default function StoreDashboard() {
       );
     };
   }, [loadData]);
+
+  // ============================================================
+  // CARREGAR CONTA QUANDO USUÁRIO ESTIVER LOGADO
+  // ============================================================
+
+  useEffect(() => {
+    if (currentUser) {
+      loadAccount();
+    }
+  }, [
+    currentUser,
+    loadAccount,
+  ]);
 
   // ============================================================
   // CRIAR ENTREGA
@@ -1096,7 +1142,6 @@ export default function StoreDashboard() {
         toast.error(
           "Informe um valor de entrega válido."
         );
-
         return;
       }
 
@@ -1106,7 +1151,6 @@ export default function StoreDashboard() {
         toast.error(
           "Informe o nome do cliente."
         );
-
         return;
       }
 
@@ -1116,7 +1160,6 @@ export default function StoreDashboard() {
         toast.error(
           "Informe o endereço de destino."
         );
-
         return;
       }
 
@@ -1141,7 +1184,8 @@ export default function StoreDashboard() {
             notes:
               deliveryForm.notes.trim(),
 
-            price: finalPrice,
+            price:
+              finalPrice,
 
             distance_km:
               Number(
@@ -1204,7 +1248,6 @@ export default function StoreDashboard() {
         toast.error(
           "Informe um preço válido para o produto."
         );
-
         return;
       }
 
@@ -1214,7 +1257,6 @@ export default function StoreDashboard() {
         toast.error(
           "Informe o nome do produto."
         );
-
         return;
       }
 
@@ -1234,7 +1276,8 @@ export default function StoreDashboard() {
               productForm.category.trim() ||
               "Geral",
 
-            price: productPrice,
+            price:
+              productPrice,
           }
         );
 
@@ -1276,7 +1319,6 @@ export default function StoreDashboard() {
         toast.error(
           "Produto inválido."
         );
-
         return;
       }
 
@@ -1324,7 +1366,6 @@ export default function StoreDashboard() {
       address:
         "Cidade - ",
     },
-
     {
       id: "city_condominium",
       label:
@@ -1333,7 +1374,6 @@ export default function StoreDashboard() {
       address:
         "Condomínio (Cidade) - ",
     },
-
     {
       id: "nearby_condominium",
       label:
@@ -1342,7 +1382,6 @@ export default function StoreDashboard() {
       address:
         "Cond. Raízes / Botânico - ",
     },
-
     {
       id: "reserva_bosque",
       label:
@@ -1351,7 +1390,6 @@ export default function StoreDashboard() {
       address:
         "Cond. Reserva do Bosque - ",
     },
-
     {
       id: "distant_condominium",
       label:
@@ -1372,7 +1410,7 @@ export default function StoreDashboard() {
       right={
         <div className="flex space-x-3">
           {activeTab ===
-          "deliveries" ? (
+            "deliveries" && (
             <button
               type="button"
               onClick={() =>
@@ -1383,12 +1421,14 @@ export default function StoreDashboard() {
               className="flex items-center space-x-2 bg-orange-600 hover:bg-orange-500 text-white px-4 py-2 rounded-xl font-medium transition"
             >
               <Plus className="w-5 h-5" />
-
               <span>
                 Nova Entrega
               </span>
             </button>
-          ) : (
+          )}
+
+          {activeTab ===
+            "products" && (
             <button
               type="button"
               onClick={() =>
@@ -1399,7 +1439,6 @@ export default function StoreDashboard() {
               className="flex items-center space-x-2 bg-orange-600 hover:bg-orange-500 text-white px-4 py-2 rounded-xl font-medium transition"
             >
               <Plus className="w-5 h-5" />
-
               <span>
                 Novo Produto
               </span>
@@ -1414,7 +1453,8 @@ export default function StoreDashboard() {
             ABAS
         ====================================================== */}
 
-        <div className="flex border-b border-slate-800 space-x-6">
+        <div className="flex border-b border-slate-800 space-x-4 md:space-x-6 overflow-x-auto">
+
           <button
             type="button"
             onClick={() =>
@@ -1422,7 +1462,7 @@ export default function StoreDashboard() {
                 "deliveries"
               )
             }
-            className={`pb-3 font-medium text-sm transition border-b-2 ${
+            className={`pb-3 whitespace-nowrap font-medium text-sm transition border-b-2 ${
               activeTab ===
               "deliveries"
                 ? "border-orange-500 text-orange-400"
@@ -1439,7 +1479,7 @@ export default function StoreDashboard() {
                 "products"
               )
             }
-            className={`pb-3 font-medium text-sm transition border-b-2 ${
+            className={`pb-3 whitespace-nowrap font-medium text-sm transition border-b-2 ${
               activeTab ===
               "products"
                 ? "border-orange-500 text-orange-400"
@@ -1457,7 +1497,7 @@ export default function StoreDashboard() {
                 "billing"
               )
             }
-            className={`pb-3 font-medium text-sm transition border-b-2 ${
+            className={`pb-3 whitespace-nowrap font-medium text-sm transition border-b-2 ${
               activeTab ===
               "billing"
                 ? "border-orange-500 text-orange-400"
@@ -1465,6 +1505,26 @@ export default function StoreDashboard() {
             }`}
           >
             Faturamento
+          </button>
+
+          {/* NOVA ABA CONTA / PIX */}
+
+          <button
+            type="button"
+            onClick={() =>
+              setActiveTab(
+                "account"
+              )
+            }
+            className={`pb-3 whitespace-nowrap font-medium text-sm transition border-b-2 flex items-center gap-1.5 ${
+              activeTab ===
+              "account"
+                ? "border-orange-500 text-orange-400"
+                : "border-transparent text-slate-400 hover:text-white"
+            }`}
+          >
+            <CreditCard className="w-4 h-4" />
+            Conta / PIX
           </button>
         </div>
 
@@ -1484,9 +1544,7 @@ export default function StoreDashboard() {
                 </span>
 
                 <p className="text-2xl font-bold text-white mt-2">
-                  {
-                    deliveries.length
-                  }
+                  {deliveries.length}
                 </p>
               </div>
 
@@ -1498,9 +1556,7 @@ export default function StoreDashboard() {
                 <p className="text-2xl font-bold text-white mt-2">
                   {
                     deliveries.filter(
-                      (
-                        delivery
-                      ) =>
+                      (delivery) =>
                         [
                           "pending",
                           "accepted",
@@ -1524,9 +1580,7 @@ export default function StoreDashboard() {
                 <p className="text-2xl font-bold text-white mt-2">
                   {
                     deliveries.filter(
-                      (
-                        delivery
-                      ) =>
+                      (delivery) =>
                         [
                           "delivered",
                           "completed",
@@ -1564,9 +1618,7 @@ export default function StoreDashboard() {
                 <div className="space-y-4">
 
                   {deliveries.map(
-                    (
-                      delivery
-                    ) => {
+                    (delivery) => {
                       const deliveryId =
                         delivery.id ||
                         delivery._id;
@@ -1591,7 +1643,11 @@ export default function StoreDashboard() {
 
                       const formattedRequestDate =
                         requestDate
-                          ? new Date(requestDate).toLocaleDateString("pt-BR")
+                          ? new Date(
+                              requestDate
+                            ).toLocaleDateString(
+                              "pt-BR"
+                            )
                           : "—";
 
                       const status =
@@ -1633,7 +1689,6 @@ export default function StoreDashboard() {
                           }
                           className="border border-slate-800 bg-slate-950/50 p-4 rounded-xl flex flex-col md:flex-row justify-between items-start md:items-center gap-4"
                         >
-
                           <div>
 
                             <div className="flex items-center gap-2 flex-wrap">
@@ -1645,7 +1700,10 @@ export default function StoreDashboard() {
                               </span>
 
                               <span className="text-[11px] font-semibold text-slate-400 bg-slate-900 px-2 py-0.5 rounded border border-slate-800 whitespace-nowrap">
-                                📅 {formattedRequestDate}
+                                📅{" "}
+                                {
+                                  formattedRequestDate
+                                }
                               </span>
 
                               <span className="text-xs px-2 py-0.5 rounded-full font-medium bg-amber-500/10 text-amber-400 border border-amber-500/20">
@@ -1686,20 +1744,13 @@ export default function StoreDashboard() {
                           <div className="flex items-center space-x-4">
 
                             <div className="text-right">
-
                               <p className="text-emerald-400 font-bold">
                                 R${" "}
                                 {deliveryPrice.toFixed(
                                   2
                                 )}
                               </p>
-
-
                             </div>
-
-                            {/* =================================================
-                                BOTÃO CHAT
-                            ================================================== */}
 
                             <button
                               type="button"
@@ -1710,7 +1761,9 @@ export default function StoreDashboard() {
                                   );
 
                                 setUnreadMessages(
-                                  (previous) => {
+                                  (
+                                    previous
+                                  ) => {
                                     const updated =
                                       {
                                         ...previous,
@@ -1753,7 +1806,6 @@ export default function StoreDashboard() {
                             </button>
 
                           </div>
-
                         </div>
                       );
                     }
@@ -1767,7 +1819,7 @@ export default function StoreDashboard() {
         )}
 
         {/* =====================================================
-            FATURAMENTO / CICLO ATUAL
+            FATURAMENTO
         ====================================================== */}
 
         {activeTab ===
@@ -1780,99 +1832,245 @@ export default function StoreDashboard() {
               </div>
             ) : (
               <>
+
                 <div className="bg-slate-900 border border-orange-500/20 rounded-2xl p-6">
+
                   <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+
                     <div>
+
                       <div className="flex items-center gap-2">
+
                         <CalendarDays className="w-5 h-5 text-orange-400" />
+
                         <h2 className="text-xl font-black text-white">
                           Ciclo atual
                         </h2>
+
                       </div>
+
                       <p className="text-sm text-slate-400 mt-1">
-                        {billingCycle?.period_start && billingCycle?.period_end
-                          ? `${formatCycleDate(billingCycle.period_start)} a ${formatCycleDate(billingCycle.period_end)}`
+                        {billingCycle?.period_start &&
+                        billingCycle?.period_end
+                          ? `${formatCycleDate(
+                              billingCycle.period_start
+                            )} a ${formatCycleDate(
+                              billingCycle.period_end
+                            )}`
                           : "Carregando período..."}
                       </p>
+
                     </div>
+
                     <span className="text-xs font-bold px-3 py-2 rounded-xl bg-orange-500/10 border border-orange-500/20 text-orange-300">
-                      Fechamento: {billingCycle?.closing_weekday_label || "—"}
+                      Fechamento:{" "}
+                      {
+                        billingCycle?.closing_weekday_label ||
+                        "—"
+                      }
                     </span>
+
                   </div>
+
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+
                   <div className="bg-slate-900 border border-slate-800 p-5 rounded-2xl">
+
                     <div className="flex items-center gap-2 text-orange-400">
                       <Package className="w-5 h-5" />
-                      <span className="text-xs uppercase font-bold tracking-wide">Corridas</span>
+                      <span className="text-xs uppercase font-bold tracking-wide">
+                        Corridas
+                      </span>
                     </div>
+
                     <p className="text-2xl font-black text-white mt-2">
-                      {Number(billingCycle?.total_deliveries || 0)}
+                      {
+                        Number(
+                          billingCycle?.total_deliveries ||
+                            0
+                        )
+                      }
                     </p>
-                    <p className="text-xs text-slate-500 mt-1">No ciclo atual</p>
+
+                    <p className="text-xs text-slate-500 mt-1">
+                      No ciclo atual
+                    </p>
+
                   </div>
 
                   <div className="bg-slate-900 border border-slate-800 p-5 rounded-2xl">
+
                     <div className="flex items-center gap-2 text-emerald-400">
                       <DollarSign className="w-5 h-5" />
-                      <span className="text-xs uppercase font-bold tracking-wide">Bruto</span>
+                      <span className="text-xs uppercase font-bold tracking-wide">
+                        Bruto
+                      </span>
                     </div>
+
                     <p className="text-2xl font-black text-white mt-2">
-                      R$ {Number(billingCycle?.total_gross || 0).toFixed(2).replace(".", ",")}
+                      R${" "}
+                      {Number(
+                        billingCycle?.total_gross ||
+                          0
+                      )
+                        .toFixed(2)
+                        .replace(
+                          ".",
+                          ","
+                        )}
                     </p>
-                    <p className="text-xs text-slate-500 mt-1">Movimentação das corridas</p>
+
+                    <p className="text-xs text-slate-500 mt-1">
+                      Movimentação das corridas
+                    </p>
+
                   </div>
 
                   <div className="bg-slate-900 border border-slate-800 p-5 rounded-2xl">
+
                     <div className="flex items-center gap-2 text-orange-400">
                       <DollarSign className="w-5 h-5" />
-                      <span className="text-xs uppercase font-bold tracking-wide">Valor a pagar</span>
+
+                      <span className="text-xs uppercase font-bold tracking-wide">
+                        Valor a pagar
+                      </span>
                     </div>
+
                     <p className="text-2xl font-black text-white mt-2">
-                      R$ {Number(billingCycle?.total_to_pay || 0).toFixed(2).replace(".", ",")}
+                      R${" "}
+                      {Number(
+                        billingCycle?.total_to_pay ||
+                          0
+                      )
+                        .toFixed(2)
+                        .replace(
+                          ".",
+                          ","
+                        )}
                     </p>
-                    <p className="text-xs text-slate-500 mt-1">Calculado pelas corridas do ciclo</p>
+
+                    <p className="text-xs text-slate-500 mt-1">
+                      Calculado pelas corridas do ciclo
+                    </p>
+
                   </div>
+
                 </div>
 
                 <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6">
+
                   <div className="flex items-center justify-between gap-3 mb-4">
+
                     <div>
-                      <h3 className="font-bold text-lg text-white">Movimentação do ciclo</h3>
-                      <p className="text-xs text-slate-500 mt-1">Cada corrida concluída aparece com a data e o entregador.</p>
+                      <h3 className="font-bold text-lg text-white">
+                        Movimentação do ciclo
+                      </h3>
+
+                      <p className="text-xs text-slate-500 mt-1">
+                        Cada corrida concluída aparece com a data e o entregador.
+                      </p>
                     </div>
+
                   </div>
 
-                  {(billingCycle?.delivery_details || []).length === 0 ? (
-                    <p className="text-sm text-slate-400 py-6 text-center">Nenhuma corrida concluída neste ciclo.</p>
+                  {(
+                    billingCycle?.delivery_details ||
+                    []
+                  ).length === 0 ? (
+                    <p className="text-sm text-slate-400 py-6 text-center">
+                      Nenhuma corrida concluída neste ciclo.
+                    </p>
                   ) : (
                     <div className="overflow-x-auto">
+
                       <table className="w-full text-sm">
+
                         <thead>
                           <tr className="border-b border-slate-800 text-slate-500 text-left">
-                            <th className="py-3 pr-4">Data</th>
-                            <th className="py-3 pr-4">Corrida</th>
-                            <th className="py-3 pr-4">Entregador</th>
-                            <th className="py-3 text-right">Valor</th>
+                            <th className="py-3 pr-4">
+                              Data
+                            </th>
+
+                            <th className="py-3 pr-4">
+                              Corrida
+                            </th>
+
+                            <th className="py-3 pr-4">
+                              Entregador
+                            </th>
+
+                            <th className="py-3 text-right">
+                              Valor
+                            </th>
                           </tr>
                         </thead>
+
                         <tbody>
-                          {(billingCycle?.delivery_details || []).map((item) => (
-                            <tr key={item.id || item.code} className="border-b border-slate-900 last:border-0">
-                              <td className="py-3 pr-4 text-slate-300 whitespace-nowrap">{formatCycleDate(item.date)}</td>
-                              <td className="py-3 pr-4 text-white font-bold">{item.code || "—"}</td>
-                              <td className="py-3 pr-4 text-slate-300">{item.courier_name || "Entregador"}</td>
-                              <td className="py-3 text-right text-emerald-400 font-bold whitespace-nowrap">R$ {Number(item.gross_price || 0).toFixed(2).replace(".", ",")}</td>
-                            </tr>
-                          ))}
+
+                          {(
+                            billingCycle?.delivery_details ||
+                            []
+                          ).map(
+                            (item) => (
+                              <tr
+                                key={
+                                  item.id ||
+                                  item.code
+                                }
+                                className="border-b border-slate-900 last:border-0"
+                              >
+
+                                <td className="py-3 pr-4 text-slate-300 whitespace-nowrap">
+                                  {formatCycleDate(
+                                    item.date
+                                  )}
+                                </td>
+
+                                <td className="py-3 pr-4 text-white font-bold">
+                                  {
+                                    item.code ||
+                                    "—"
+                                  }
+                                </td>
+
+                                <td className="py-3 pr-4 text-slate-300">
+                                  {
+                                    item.courier_name ||
+                                    "Entregador"
+                                  }
+                                </td>
+
+                                <td className="py-3 text-right text-emerald-400 font-bold whitespace-nowrap">
+                                  R${" "}
+                                  {Number(
+                                    item.gross_price ||
+                                      0
+                                  )
+                                    .toFixed(2)
+                                    .replace(
+                                      ".",
+                                      ","
+                                    )}
+                                </td>
+
+                              </tr>
+                            )
+                          )}
+
                         </tbody>
+
                       </table>
+
                     </div>
                   )}
+
                 </div>
+
               </>
             )}
+
           </div>
         )}
 
@@ -1980,6 +2178,413 @@ export default function StoreDashboard() {
           </div>
         )}
 
+        {/* =====================================================
+            CONTA / PIX
+        ====================================================== */}
+
+        {activeTab ===
+          "account" && (
+          <div className="space-y-6">
+
+            <div className="bg-slate-900 border border-orange-500/20 rounded-2xl p-6">
+
+              <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+
+                <div>
+
+                  <div className="flex items-center gap-3">
+
+                    <div className="w-11 h-11 rounded-xl bg-orange-500/10 border border-orange-500/20 flex items-center justify-center">
+                      <CreditCard className="w-6 h-6 text-orange-400" />
+                    </div>
+
+                    <div>
+                      <h2 className="text-xl font-black text-white">
+                        Conta / PIX
+                      </h2>
+
+                      <p className="text-sm text-slate-400 mt-1">
+                        Cadastre os dados para recebimento dos pagamentos.
+                      </p>
+                    </div>
+
+                  </div>
+
+                </div>
+
+                {accountSaved ? (
+                  <div className="flex items-center gap-2 text-emerald-400 text-sm font-bold bg-emerald-500/10 border border-emerald-500/20 px-3 py-2 rounded-xl">
+                    <CheckCircle2 className="w-4 h-4" />
+                    Dados cadastrados
+                  </div>
+                ) : (
+                  <div className="text-orange-300 text-sm font-bold bg-orange-500/10 border border-orange-500/20 px-3 py-2 rounded-xl">
+                    Cadastro pendente
+                  </div>
+                )}
+
+              </div>
+
+            </div>
+
+            {accountLoading ? (
+              <div className="bg-slate-900 border border-slate-800 rounded-2xl p-10 flex justify-center">
+                <Loader2 className="w-8 h-8 animate-spin text-orange-500" />
+              </div>
+            ) : (
+              <form
+                onSubmit={
+                  handleSaveAccount
+                }
+                className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-6"
+              >
+
+                <div>
+                  <h3 className="text-lg font-bold text-white">
+                    Dados do titular
+                  </h3>
+
+                  <p className="text-xs text-slate-500 mt-1">
+                    Informe os dados bancários da conta que receberá os pagamentos.
+                  </p>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+
+                  <div>
+                    <label className="block text-sm text-slate-400 mb-1">
+                      Nome do titular
+                    </label>
+
+                    <input
+                      type="text"
+                      value={
+                        accountForm.holder_name
+                      }
+                      onChange={(
+                        event
+                      ) =>
+                        setAccountForm(
+                          (
+                            previous
+                          ) => ({
+                            ...previous,
+                            holder_name:
+                              event.target.value,
+                          })
+                        )
+                      }
+                      className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-orange-500"
+                      placeholder="Nome completo ou razão social"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm text-slate-400 mb-1">
+                      CPF / CNPJ
+                    </label>
+
+                    <input
+                      type="text"
+                      value={
+                        accountForm.document
+                      }
+                      onChange={(
+                        event
+                      ) =>
+                        setAccountForm(
+                          (
+                            previous
+                          ) => ({
+                            ...previous,
+                            document:
+                              event.target.value,
+                          })
+                        )
+                      }
+                      className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-orange-500"
+                      placeholder="CPF ou CNPJ"
+                    />
+                  </div>
+
+                </div>
+
+                <div className="border-t border-slate-800 pt-6">
+
+                  <h3 className="text-lg font-bold text-white mb-4">
+                    Dados bancários
+                  </h3>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+
+                    <div>
+                      <label className="block text-sm text-slate-400 mb-1">
+                        Banco
+                      </label>
+
+                      <input
+                        type="text"
+                        value={
+                          accountForm.bank
+                        }
+                        onChange={(
+                          event
+                        ) =>
+                          setAccountForm(
+                            (
+                              previous
+                            ) => ({
+                              ...previous,
+                              bank:
+                                event.target.value,
+                            })
+                          )
+                        }
+                        className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-orange-500"
+                        placeholder="Ex: Nubank, Itaú, Bradesco..."
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-sm text-slate-400 mb-1">
+                        Tipo de conta
+                      </label>
+
+                      <select
+                        value={
+                          accountForm.account_type
+                        }
+                        onChange={(
+                          event
+                        ) =>
+                          setAccountForm(
+                            (
+                              previous
+                            ) => ({
+                              ...previous,
+                              account_type:
+                                event.target.value,
+                            })
+                          )
+                        }
+                        className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-orange-500"
+                      >
+                        <option value="corrente">
+                          Conta Corrente
+                        </option>
+
+                        <option value="poupanca">
+                          Conta Poupança
+                        </option>
+
+                        <option value="pagamento">
+                          Conta de Pagamento
+                        </option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-sm text-slate-400 mb-1">
+                        Agência
+                      </label>
+
+                      <input
+                        type="text"
+                        value={
+                          accountForm.agency
+                        }
+                        onChange={(
+                          event
+                        ) =>
+                          setAccountForm(
+                            (
+                              previous
+                            ) => ({
+                              ...previous,
+                              agency:
+                                event.target.value,
+                            })
+                          )
+                        }
+                        className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-orange-500"
+                        placeholder="Ex: 0001"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-sm text-slate-400 mb-1">
+                        Número da conta
+                      </label>
+
+                      <input
+                        type="text"
+                        value={
+                          accountForm.account
+                        }
+                        onChange={(
+                          event
+                        ) =>
+                          setAccountForm(
+                            (
+                              previous
+                            ) => ({
+                              ...previous,
+                              account:
+                                event.target.value,
+                            })
+                          )
+                        }
+                        className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-orange-500"
+                        placeholder="Número da conta"
+                      />
+                    </div>
+
+                  </div>
+
+                </div>
+
+                <div className="border-t border-slate-800 pt-6">
+
+                  <h3 className="text-lg font-bold text-white mb-4">
+                    Chave PIX
+                  </h3>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+
+                    <div>
+                      <label className="block text-sm text-slate-400 mb-1">
+                        Tipo da chave PIX
+                      </label>
+
+                      <select
+                        value={
+                          accountForm.pix_key_type
+                        }
+                        onChange={(
+                          event
+                        ) =>
+                          setAccountForm(
+                            (
+                              previous
+                            ) => ({
+                              ...previous,
+                              pix_key_type:
+                                event.target.value,
+                            })
+                          )
+                        }
+                        className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-orange-500"
+                      >
+                        <option value="">
+                          Selecione
+                        </option>
+
+                        <option value="cpf">
+                          CPF
+                        </option>
+
+                        <option value="cnpj">
+                          CNPJ
+                        </option>
+
+                        <option value="email">
+                          E-mail
+                        </option>
+
+                        <option value="phone">
+                          Celular
+                        </option>
+
+                        <option value="random">
+                          Chave aleatória
+                        </option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-sm text-slate-400 mb-1">
+                        Chave PIX
+                      </label>
+
+                      <input
+                        type="text"
+                        value={
+                          accountForm.pix_key
+                        }
+                        onChange={(
+                          event
+                        ) =>
+                          setAccountForm(
+                            (
+                              previous
+                            ) => ({
+                              ...previous,
+                              pix_key:
+                                event.target.value,
+                            })
+                          )
+                        }
+                        className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-orange-500"
+                        placeholder="Informe sua chave PIX"
+                      />
+                    </div>
+
+                  </div>
+
+                </div>
+
+                <div className="flex flex-col sm:flex-row justify-end gap-3 pt-2">
+
+                  <button
+                    type="submit"
+                    disabled={
+                      accountSaving
+                    }
+                    className="flex items-center justify-center gap-2 px-5 py-3 bg-orange-600 hover:bg-orange-500 disabled:opacity-60 disabled:cursor-not-allowed text-white font-bold rounded-xl transition"
+                  >
+                    {accountSaving ? (
+                      <>
+                        <Loader2 className="w-5 h-5 animate-spin" />
+                        Salvando...
+                      </>
+                    ) : (
+                      <>
+                        <Save className="w-5 h-5" />
+                        Salvar Conta / PIX
+                      </>
+                    )}
+                  </button>
+
+                </div>
+
+              </form>
+            )}
+
+            <div className="bg-slate-900/70 border border-slate-800 rounded-2xl p-5">
+
+              <div className="flex items-start gap-3">
+
+                <CreditCard className="w-5 h-5 text-orange-400 mt-0.5" />
+
+                <div>
+
+                  <p className="text-sm font-bold text-white">
+                    Importante
+                  </p>
+
+                  <p className="text-xs text-slate-500 mt-1 leading-relaxed">
+                    Mantenha os dados bancários e a chave PIX atualizados para evitar problemas no recebimento dos pagamentos.
+                  </p>
+
+                </div>
+
+              </div>
+
+            </div>
+
+          </div>
+        )}
+
       </div>
 
       {/* =======================================================
@@ -1987,7 +2592,7 @@ export default function StoreDashboard() {
       ======================================================== */}
 
       {deliveryModal && (
-        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex justify-center items-center z-50 p-4">
+        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex justify-center items-center z-50 p-4 z-[60]">
 
           <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-lg p-6 space-y-4 max-h-[90vh] overflow-y-auto">
 
@@ -2014,7 +2619,9 @@ export default function StoreDashboard() {
                   {deliveryOptions.map(
                     (item) => (
                       <button
-                        key={item.id}
+                        key={
+                          item.id
+                        }
                         type="button"
                         onClick={() => {
                           setDeliveryForm(
@@ -2024,9 +2631,10 @@ export default function StoreDashboard() {
                               ...previous,
                               pickup_address:
                                 "Loja",
-                              price: String(
-                                item.price
-                              ),
+                              price:
+                                String(
+                                  item.price
+                                ),
                               dropoff_address:
                                 item.address,
                               notes: `${item.label} - R$ ${item.price},00`,
@@ -2352,7 +2960,7 @@ export default function StoreDashboard() {
       ======================================================== */}
 
       {productModal && (
-        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex justify-center items-center z-50 p-4">
+        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex justify-center items-center z-50 p-4 z-[60]">
 
           <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-lg p-6 space-y-4 max-h-[90vh] overflow-y-auto">
 
@@ -2387,8 +2995,9 @@ export default function StoreDashboard() {
                         previous
                       ) => ({
                         ...previous,
-                        name: event.target
-                          .value,
+                        name:
+                          event.target
+                            .value,
                       })
                     )
                   }
@@ -2544,6 +3153,7 @@ export default function StoreDashboard() {
           }}
         />
       )}
+
     </Layout>
   );
 }

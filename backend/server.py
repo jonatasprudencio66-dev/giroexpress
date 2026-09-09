@@ -8,6 +8,7 @@ load_dotenv(ROOT_DIR / ".env")
 import os
 import uuid
 import logging
+import re
 from datetime import datetime, timezone, timedelta, date
 from typing import Optional
 from zoneinfo import ZoneInfo
@@ -4418,7 +4419,7 @@ async def get_store_current_billing(
 ):
     store_id = str(user.get("_id", user.get("id", "")))
 
-    closing_weekday = await get_store_closing_weekday(store_id)
+    closing_weekday = await get_store_billing_weekday(store_id)
     today = datetime.now(BRAZIL_TZ).date()
     period_start, period_end = cycle_for_date(
         today,
