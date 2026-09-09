@@ -254,6 +254,35 @@ const getAccountTypeLabel = (type) => {
   return normalizeText(type, "-");
 };
 
+const getDeliveryStatusLabel = (status) => {
+  const normalized = String(status || "").toLowerCase();
+  const labels = {
+    pending: "Pendente",
+    accepted: "Aceita",
+    picked_up: "Retirada",
+    in_progress: "Em andamento",
+    completed: "Concluída",
+    delivered: "Entregue",
+    cancelled: "Cancelada",
+    canceled: "Cancelada",
+  };
+  return labels[normalized] || normalizeText(status, "Desconhecido");
+};
+
+const getDeliveryStatusClass = (status) => {
+  const normalized = String(status || "").toLowerCase();
+  if (["completed", "delivered"].includes(normalized)) {
+    return "bg-emerald-500/10 text-emerald-400 border-emerald-500/20";
+  }
+  if (["cancelled", "canceled"].includes(normalized)) {
+    return "bg-red-500/10 text-red-400 border-red-500/20";
+  }
+  if (["accepted", "picked_up", "in_progress"].includes(normalized)) {
+    return "bg-blue-500/10 text-blue-400 border-blue-500/20";
+  }
+  return "bg-amber-500/10 text-amber-400 border-amber-500/20";
+};
+
 const hasPaymentAccount = (user) => {
   const account = user?.payment_account;
 
@@ -311,6 +340,13 @@ export default function AdminDashboard() {
   const [savingBank, setSavingBank] = useState(false);
   const [savingOps, setSavingOps] = useState(false);
   const [selectedCourier, setSelectedCourier] = useState(null);
+  const [adminDeliveries, setAdminDeliveries] = useState([]);
+  const [deliveriesLoading, setDeliveriesLoading] = useState(false);
+  const [deliverySearch, setDeliverySearch] = useState("");
+  const [deliveryStatusFilter, setDeliveryStatusFilter] = useState("all");
+  const [deliveryDateStart, setDeliveryDateStart] = useState("");
+  const [deliveryDateEnd, setDeliveryDateEnd] = useState("");
+  const [selectedDelivery, setSelectedDelivery] = useState(null);
 
   const getTodayInputDate = () => {
     const now = new Date();
@@ -406,6 +442,42 @@ export default function AdminDashboard() {
     []
   );
 
+  const loadAdminDeliveries = useCallback(async (showLoader = false) => {
+    try {
+      if (showLoader) {
+        setDeliveriesLoading(true);
+      }
+
+      const response = await withTimeout(
+        api.get("/admin/deliveries", {
+          params: {
+            limit: 500,
+            search: deliverySearch.trim() || undefined,
+            status: deliveryStatusFilter !== "all" ? deliveryStatusFilter : undefined,
+            start_date: deliveryDateStart || undefined,
+            end_date: deliveryDateEnd || undefined,
+          },
+        }),
+        10000
+      );
+
+      setAdminDeliveries(
+        Array.isArray(response?.data)
+          ? response.data
+          : []
+      );
+    } catch (e) {
+      console.error("Erro em /admin/deliveries:", e);
+      if (showLoader) {
+        toast.error(`Erro ao carregar corridas: ${apiError(e)}`);
+      }
+    } finally {
+      if (showLoader) {
+        setDeliveriesLoading(false);
+      }
+    }
+  }, [deliverySearch, deliveryStatusFilter, deliveryDateStart, deliveryDateEnd]);
+
   const loadStats = useCallback(async () => {
     try {
       const response = await withTimeout(
@@ -467,6 +539,13 @@ export default function AdminDashboard() {
               api.get("/admin/billing"),
               10000
             ),
+
+            withTimeout(
+              api.get("/admin/deliveries", {
+                params: { limit: 500 },
+              }),
+              10000
+            ),
           ]);
 
         const [
@@ -477,6 +556,7 @@ export default function AdminDashboard() {
           settingsResult,
           operationsResult,
           billingResult,
+          deliveriesResult,
         ] = results;
 
         if (
@@ -668,6 +748,19 @@ export default function AdminDashboard() {
             billingResult.reason
           );
         }
+
+        if (deliveriesResult.status === "fulfilled") {
+          setAdminDeliveries(
+            Array.isArray(deliveriesResult.value?.data)
+              ? deliveriesResult.value.data
+              : []
+          );
+        } else {
+          console.error(
+            "Erro em /admin/deliveries:",
+            deliveriesResult.reason
+          );
+        }
       } catch (e) {
         console.error(
           "Erro inesperado ao carregar painel:",
@@ -706,12 +799,13 @@ export default function AdminDashboard() {
     const timer = setInterval(() => {
       loadStats();
       loadBilling(false);
+      loadAdminDeliveries(false);
     }, 8000);
 
     return () => {
       clearInterval(timer);
     };
-  }, [loadStats, loadBilling]);
+  }, [loadStats, loadBilling, loadAdminDeliveries]);
 
   const handleRefresh = async () => {
     try {
@@ -1600,6 +1694,157 @@ export default function AdminDashboard() {
           </div>
 
         </div>
+
+        {/* =====================================================
+            MONITORAMENTO DE CORRIDAS — ADMIN MASTER
+            ===================================================== */}
+        <section className="bg-slate-900 border border-blue-500/20 rounded-2xl p-6">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between mb-5">
+            <div>
+              <h2 className="text-lg font-semibold text-white flex items-center gap-2">
+                <Eye className="w-5 h-5 text-blue-400" />
+                Monitoramento de corridas
+              </h2>
+              <p className="text-sm text-slate-400 mt-1">
+                O Admin Master pode consultar as corridas e verificar o que aconteceu em cada etapa.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => loadAdminDeliveries(true)}
+              disabled={deliveriesLoading}
+              className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-700 bg-slate-950 px-4 py-2.5 text-sm font-semibold text-slate-200 hover:bg-slate-800 disabled:opacity-50"
+            >
+              <RefreshCw className={`w-4 h-4 ${deliveriesLoading ? "animate-spin" : ""}`} />
+              Atualizar corridas
+            </button>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3 mb-5">
+            <input
+              value={deliverySearch}
+              onChange={(e) => setDeliverySearch(e.target.value)}
+              placeholder="Buscar por ID, código, loja, cliente ou entregador"
+              className="xl:col-span-2 rounded-xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm text-white placeholder:text-slate-600 outline-none focus:border-blue-500"
+            />
+            <select
+              value={deliveryStatusFilter}
+              onChange={(e) => setDeliveryStatusFilter(e.target.value)}
+              className="rounded-xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm text-white outline-none focus:border-blue-500"
+            >
+              <option value="all">Todos os status</option>
+              <option value="pending">Pendentes</option>
+              <option value="accepted">Aceitas</option>
+              <option value="picked_up">Retiradas</option>
+              <option value="in_progress">Em andamento</option>
+              <option value="completed">Concluídas</option>
+              <option value="cancelled">Canceladas</option>
+            </select>
+            <div className="grid grid-cols-2 gap-2">
+              <input
+                type="date"
+                value={deliveryDateStart}
+                onChange={(e) => setDeliveryDateStart(e.target.value)}
+                className="rounded-xl border border-slate-700 bg-slate-950 px-3 py-3 text-sm text-white outline-none focus:border-blue-500"
+              />
+              <input
+                type="date"
+                value={deliveryDateEnd}
+                onChange={(e) => setDeliveryDateEnd(e.target.value)}
+                className="rounded-xl border border-slate-700 bg-slate-950 px-3 py-3 text-sm text-white outline-none focus:border-blue-500"
+              />
+            </div>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2 mb-4">
+            <button
+              type="button"
+              onClick={() => loadAdminDeliveries(true)}
+              className="rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-500"
+            >
+              🔎 Consultar
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setDeliverySearch("");
+                setDeliveryStatusFilter("all");
+                setDeliveryDateStart("");
+                setDeliveryDateEnd("");
+                setTimeout(() => loadAdminDeliveries(true), 0);
+              }}
+              className="rounded-xl border border-slate-700 bg-slate-950 px-4 py-2.5 text-sm font-semibold text-slate-300 hover:bg-slate-800"
+            >
+              Limpar filtros
+            </button>
+            <span className="ml-auto text-xs text-slate-500">
+              {adminDeliveries.length} corrida(s) encontrada(s)
+            </span>
+          </div>
+
+          {deliveriesLoading ? (
+            <div className="rounded-xl border border-dashed border-slate-700 p-8 text-center text-slate-400">
+              <Loader2 className="w-6 h-6 animate-spin mx-auto mb-2" />
+              Carregando corridas...
+            </div>
+          ) : adminDeliveries.length === 0 ? (
+            <div className="rounded-xl border border-dashed border-slate-700 p-8 text-center text-slate-500">
+              Nenhuma corrida encontrada com os filtros informados.
+            </div>
+          ) : (
+            <div className="overflow-x-auto rounded-xl border border-slate-800">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-slate-800 bg-slate-950 text-left">
+                    <th className="px-4 py-3 text-slate-500 font-medium">Data</th>
+                    <th className="px-4 py-3 text-slate-500 font-medium">Corrida</th>
+                    <th className="px-4 py-3 text-slate-500 font-medium">Loja</th>
+                    <th className="px-4 py-3 text-slate-500 font-medium">Entregador</th>
+                    <th className="px-4 py-3 text-slate-500 font-medium">Valor</th>
+                    <th className="px-4 py-3 text-slate-500 font-medium">Status</th>
+                    <th className="px-4 py-3 text-slate-500 font-medium">Ação</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {adminDeliveries.map((delivery, index) => {
+                    const deliveryId = String(delivery?.id || delivery?._id || index);
+                    const status = String(delivery?.status || "").toLowerCase();
+                    const dateValue = delivery?.completed_at || delivery?.created_at;
+                    return (
+                      <tr key={`admin-delivery-${deliveryId}-${index}`} className="border-b border-slate-800/70 last:border-0">
+                        <td className="px-4 py-4 text-slate-300 whitespace-nowrap">
+                          {dateValue ? formatDateTimeBR(dateValue) : "—"}
+                        </td>
+                        <td className="px-4 py-4">
+                          <div className="font-semibold text-white">{normalizeText(delivery?.code, deliveryId)}</div>
+                          <div className="text-[11px] text-slate-600 break-all">{deliveryId}</div>
+                        </td>
+                        <td className="px-4 py-4 text-white">{normalizeText(delivery?.store_name, "Loja")}</td>
+                        <td className="px-4 py-4 text-slate-300">{normalizeText(delivery?.courier_name, "Não informado")}</td>
+                        <td className="px-4 py-4 text-emerald-400 font-semibold">{formatBRL(Number(delivery?.gross_price ?? delivery?.price ?? 0))}</td>
+                        <td className="px-4 py-4">
+                          <span className={`inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-medium ${getDeliveryStatusClass(status)}`}>
+                            {getDeliveryStatusLabel(status)}
+                          </span>
+                        </td>
+                        <td className="px-4 py-4">
+                          <button
+                            type="button"
+                            onClick={() => setSelectedDelivery(delivery)}
+                            className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-3 py-2 text-xs font-semibold text-white hover:bg-blue-500"
+                          >
+                            <Eye className="w-4 h-4" />
+                            Ver detalhes
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </section>
 
         <section className="bg-slate-900 border border-slate-800 rounded-2xl p-6">
           <div className="flex items-center justify-between mb-5">
@@ -4012,6 +4257,127 @@ export default function AdminDashboard() {
 
       </div>
 
+      {selectedDelivery && (
+        <div
+          className="fixed inset-0 z-[110] flex items-center justify-center bg-black/70 backdrop-blur-sm p-4"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) {
+              setSelectedDelivery(null);
+            }
+          }}
+        >
+          <div className="w-full max-w-3xl max-h-[92vh] overflow-y-auto rounded-2xl border border-slate-700 bg-slate-900 shadow-2xl">
+            <div className="sticky top-0 z-10 flex items-center justify-between border-b border-slate-800 bg-slate-900 px-6 py-5">
+              <div>
+                <h2 className="text-lg font-bold text-white flex items-center gap-2">
+                  <Eye className="w-5 h-5 text-blue-400" />
+                  Detalhes da corrida
+                </h2>
+                <p className="text-sm text-slate-400 mt-1">
+                  {normalizeText(selectedDelivery?.code, selectedDelivery?.id || "Corrida")}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSelectedDelivery(null)}
+                className="w-9 h-9 rounded-lg border border-slate-700 bg-slate-950 text-slate-400 hover:text-white hover:bg-slate-800 flex items-center justify-center"
+                aria-label="Fechar"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="p-6 space-y-5">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                <div className="rounded-xl border border-slate-800 bg-slate-950 p-4">
+                  <p className="text-xs text-slate-500">Status</p>
+                  <span className={`mt-2 inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-medium ${getDeliveryStatusClass(selectedDelivery?.status)}`}>
+                    {getDeliveryStatusLabel(selectedDelivery?.status)}
+                  </span>
+                </div>
+                <div className="rounded-xl border border-slate-800 bg-slate-950 p-4">
+                  <p className="text-xs text-slate-500">Loja</p>
+                  <p className="text-sm font-semibold text-white mt-1">{normalizeText(selectedDelivery?.store_name, "Loja")}</p>
+                </div>
+                <div className="rounded-xl border border-slate-800 bg-slate-950 p-4">
+                  <p className="text-xs text-slate-500">Entregador</p>
+                  <p className="text-sm font-semibold text-white mt-1">{normalizeText(selectedDelivery?.courier_name, "Não informado")}</p>
+                </div>
+                <div className="rounded-xl border border-slate-800 bg-slate-950 p-4">
+                  <p className="text-xs text-slate-500">Cliente</p>
+                  <p className="text-sm font-semibold text-white mt-1">{normalizeText(selectedDelivery?.client_name, "Não informado")}</p>
+                  {selectedDelivery?.client_phone && <p className="text-xs text-slate-500 mt-1">{selectedDelivery.client_phone}</p>}
+                </div>
+                <div className="rounded-xl border border-slate-800 bg-slate-950 p-4">
+                  <p className="text-xs text-slate-500">Valor bruto</p>
+                  <p className="text-lg font-bold text-emerald-400 mt-1">{formatBRL(Number(selectedDelivery?.gross_price ?? selectedDelivery?.price ?? 0))}</p>
+                </div>
+                <div className="rounded-xl border border-slate-800 bg-slate-950 p-4">
+                  <p className="text-xs text-slate-500">Distância</p>
+                  <p className="text-sm font-semibold text-white mt-1">{selectedDelivery?.distance_km != null ? `${selectedDelivery.distance_km} km` : "Não informada"}</p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+                <div className="rounded-xl border border-slate-800 bg-slate-950 p-4">
+                  <p className="text-xs text-slate-500">Origem</p>
+                  <p className="text-sm text-slate-200 mt-1 break-words">{normalizeText(selectedDelivery?.pickup_address, "Não informado")}</p>
+                </div>
+                <div className="rounded-xl border border-slate-800 bg-slate-950 p-4">
+                  <p className="text-xs text-slate-500">Destino</p>
+                  <p className="text-sm text-slate-200 mt-1 break-words">{normalizeText(selectedDelivery?.dropoff_address, "Não informado")}</p>
+                </div>
+              </div>
+
+              <div className="rounded-xl border border-slate-800 bg-slate-950 p-5">
+                <h3 className="text-base font-semibold text-white mb-4">Linha do tempo</h3>
+                <div className="space-y-3">
+                  {Array.isArray(selectedDelivery?.status_history) && selectedDelivery.status_history.length > 0 ? (
+                    selectedDelivery.status_history.map((event, index) => (
+                      <div key={`delivery-event-${index}`} className="flex gap-3">
+                        <div className="flex flex-col items-center">
+                          <div className="w-2.5 h-2.5 rounded-full bg-blue-400 mt-1.5" />
+                          {index < selectedDelivery.status_history.length - 1 && <div className="w-px flex-1 bg-slate-700 mt-1" />}
+                        </div>
+                        <div className="pb-3">
+                          <p className="text-sm font-semibold text-white">{getDeliveryStatusLabel(event?.status)}</p>
+                          <p className="text-xs text-slate-500 mt-1">{event?.at ? formatDateTimeBR(event.at) : "Horário não registrado"}</p>
+                          {event?.actor_name && <p className="text-xs text-slate-500 mt-1">Responsável: {event.actor_name}</p>}
+                        </div>
+                      </div>
+                    ))
+                  ) : (
+                    <div className="space-y-3">
+                      <div className="flex gap-3"><div className="w-2.5 h-2.5 rounded-full bg-blue-400 mt-1.5" /><div><p className="text-sm font-semibold text-white">Corrida criada</p><p className="text-xs text-slate-500 mt-1">{selectedDelivery?.created_at ? formatDateTimeBR(selectedDelivery.created_at) : "Horário não registrado"}</p></div></div>
+                      {selectedDelivery?.completed_at && <div className="flex gap-3"><div className="w-2.5 h-2.5 rounded-full bg-emerald-400 mt-1.5" /><div><p className="text-sm font-semibold text-white">{getDeliveryStatusLabel(selectedDelivery?.status)}</p><p className="text-xs text-slate-500 mt-1">{formatDateTimeBR(selectedDelivery.completed_at)}</p></div></div>}
+                      <p className="text-xs text-slate-600">Histórico detalhado de etapas não disponível para esta corrida antiga.</p>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {selectedDelivery?.notes && (
+                <div className="rounded-xl border border-slate-800 bg-slate-950 p-4">
+                  <p className="text-xs text-slate-500">Observações</p>
+                  <p className="text-sm text-slate-200 mt-1 whitespace-pre-wrap">{selectedDelivery.notes}</p>
+                </div>
+              )}
+            </div>
+
+            <div className="flex justify-end border-t border-slate-800 bg-slate-950 px-6 py-4">
+              <button
+                type="button"
+                onClick={() => setSelectedDelivery(null)}
+                className="inline-flex items-center gap-2 rounded-xl border border-slate-700 bg-slate-900 px-4 py-2.5 text-sm font-semibold text-slate-200 hover:bg-slate-800"
+              >
+                <X className="w-4 h-4" />
+                Fechar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {selectedCourier && (
         <div
           className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 backdrop-blur-sm p-4"
@@ -4292,3 +4658,4 @@ export default function AdminDashboard() {
     </Layout>
   );
 }
+

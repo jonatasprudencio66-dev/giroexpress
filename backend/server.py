@@ -1716,6 +1716,10 @@ def delivery_to_public(
         "completed_at": d.get(
             "completed_at"
         ),
+        "status_history": d.get(
+            "status_history",
+            []
+        ),
     }
 
 
@@ -1789,6 +1793,14 @@ async def create_delivery(
             "net_courier"
         ],
         "status": "pending",
+        "status_history": [
+            {
+                "status": "pending",
+                "at": now_iso(),
+                "actor_id": str(user.get("_id", "")),
+                "actor_name": user.get("name", "Loja"),
+            }
+        ],
         "courier_id": None,
         "courier_name": None,
         "batch_id": body.batch_id,
@@ -1973,7 +1985,18 @@ async def perform_accept_delivery(
                     "name",
                     "Entregador",
                 ),
-            }
+            },
+            "$push": {
+                "status_history": {
+                    "status": "accepted",
+                    "at": now_iso(),
+                    "actor_id": courier_id,
+                    "actor_name": user.get(
+                        "name",
+                        "Entregador",
+                    ),
+                }
+            },
         },
     )
 
@@ -2912,6 +2935,62 @@ async def admin_delete_user(
 # ADMIN STATS
 # =========================================================
 
+@app.get("/admin/deliveries")
+@app.get("/api/admin/deliveries")
+async def admin_list_deliveries(
+    status: Optional[str] = None,
+    search: Optional[str] = None,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    limit: int = 500,
+    admin: dict = Depends(require_roles("admin")),
+):
+    """Consulta completa das corridas para suporte do Admin Master."""
+
+    limit = max(1, min(int(limit or 500), 1000))
+    query = {}
+
+    normalized_status = str(status or "").strip().lower()
+    if normalized_status and normalized_status != "all":
+        query["status"] = normalized_status
+
+    # Filtro por data usa created_at, que existe em todas as corridas novas.
+    date_filter = {}
+    if start_date:
+        try:
+            date_filter["$gte"] = f"{start_date}T00:00:00"
+        except Exception:
+            pass
+    if end_date:
+        try:
+            date_filter["$lte"] = f"{end_date}T23:59:59.999999"
+        except Exception:
+            pass
+    if date_filter:
+        query["created_at"] = date_filter
+
+    search_text = str(search or "").strip()
+    if search_text:
+        escaped = re.escape(search_text)
+        query["$or"] = [
+            {"code": {"$regex": escaped, "$options": "i"}},
+            {"store_name": {"$regex": escaped, "$options": "i"}},
+            {"courier_name": {"$regex": escaped, "$options": "i"}},
+            {"client_name": {"$regex": escaped, "$options": "i"}},
+            {"client_phone": {"$regex": escaped, "$options": "i"}},
+            {"id": {"$regex": escaped, "$options": "i"}},
+        ]
+
+    docs = (
+        await db.deliveries
+        .find(query)
+        .sort("created_at", -1)
+        .to_list(limit)
+    )
+
+    return [delivery_to_public(d) for d in docs]
+
+
 @app.get("/admin/stats")
 @app.get("/api/admin/stats")
 async def admin_stats_direct(
@@ -3731,7 +3810,15 @@ async def start_delivery_direct(
         {
             "$set": {
                 "status": "picked_up"
-            }
+            },
+            "$push": {
+                "status_history": {
+                    "status": "picked_up",
+                    "at": now_iso(),
+                    "actor_id": str(user["_id"]),
+                    "actor_name": user.get("name", "Entregador"),
+                }
+            },
         },
     )
 
@@ -3810,7 +3897,18 @@ async def complete_delivery_direct(
                     "Entregador",
                 ),
                 "platform_fee": PLATFORM_FEE,
-            }
+            },
+            "$push": {
+                "status_history": {
+                    "status": "completed",
+                    "at": completed_at,
+                    "actor_id": str(user["_id"]),
+                    "actor_name": user.get(
+                        "name",
+                        "Entregador",
+                    ),
+                }
+            },
         },
     )
 
@@ -4320,7 +4418,7 @@ async def get_store_current_billing(
 ):
     store_id = str(user.get("_id", user.get("id", "")))
 
-    closing_weekday = (await db.users.find_one({"id": store_id}) or {}).get("billing_closing_weekday", DEFAULT_BILLING_WEEKDAY)
+    closing_weekday = await get_store_closing_weekday(store_id)
     today = datetime.now(BRAZIL_TZ).date()
     period_start, period_end = cycle_for_date(
         today,
