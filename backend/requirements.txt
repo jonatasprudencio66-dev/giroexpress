@@ -54,6 +54,3 @@ jq>=1.6.0
 typer>=0.9.0
 
 firebase-admin>=7.5.0
-
-
-python -m pip install -r requirements.txt
