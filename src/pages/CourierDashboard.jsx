@@ -1,3 +1,4 @@
+
 import React, {
   useCallback,
   useEffect,
@@ -5,6 +6,9 @@ import React, {
   useRef,
   useState,
 } from "react";
+
+import { PushNotifications } from "@capacitor/push-notifications";
+
 import Layout from "@/components/Layout";
 import ChatModal from "@/components/ChatModal";
 import TicketModal from "@/components/TicketModal";
@@ -16,6 +20,8 @@ import {
 } from "@/lib/api";
 import { formatBRL } from "@/lib/pricing";
 import { toast } from "sonner";
+import { Capacitor } from "@capacitor/core";
+
 import {
   Bike,
   MapPin,
@@ -60,7 +66,8 @@ function getAudioContext() {
     }
 
     if (!notificationAudioContext) {
-      notificationAudioContext = new AudioContext();
+      notificationAudioContext =
+        new AudioContext();
     }
 
     return notificationAudioContext;
@@ -101,10 +108,14 @@ function playBeepSound(ctx) {
   try {
     const now = ctx.currentTime;
 
-    const oscillator1 = ctx.createOscillator();
-    const gain1 = ctx.createGain();
+    const oscillator1 =
+      ctx.createOscillator();
+
+    const gain1 =
+      ctx.createGain();
 
     oscillator1.type = "sine";
+
     oscillator1.frequency.setValueAtTime(
       880,
       now
@@ -166,6 +177,7 @@ function playBeepSound(ctx) {
     );
 
     oscillator2.start(secondStart);
+
     oscillator2.stop(
       secondStart + 0.35
     );
@@ -256,12 +268,18 @@ function showBrowserNotification(
  * DASHBOARD DO MOTOBOY
  * ============================================================ */
 
-
 function formatCycleDate(value) {
   if (!value) return "—";
+
   const text = String(value);
-  const match = text.match(/^(\d{4})-(\d{2})-(\d{2})/);
+
+  const match =
+    text.match(
+      /^(\d{4})-(\d{2})-(\d{2})/
+    );
+
   if (!match) return text;
+
   return `${match[3]}/${match[2]}/${match[1]}`;
 }
 
@@ -297,6 +315,13 @@ export default function CourierDashboard() {
 
   const [flashCount, setFlashCount] =
     useState(0);
+
+  /* ============================================================
+   * ALERTA DE NOVA CORRIDA
+   * ============================================================ */
+
+  const [incomingDelivery, setIncomingDelivery] =
+    useState(null);
 
   /* ============================================================
    * CONTA / PIX
@@ -360,6 +385,25 @@ export default function CourierDashboard() {
   const loadGenerationRef =
     useRef(0);
 
+  /* ============================================================
+   * NOVA REF IMPORTANTE
+   *
+   * Mantém sempre a lista mais recente de corridas
+   * sem obrigar o efeito do FCM a ser recriado.
+   * ============================================================ */
+
+  const deliveriesRef =
+    useRef([]);
+
+  const incomingDeliveryTimerRef =
+    useRef(null);
+
+  const pushListenersRef =
+    useRef([]);
+
+  const pushInitializedRef =
+    useRef(false);
+
   const userId =
     user?.id || user?._id;
 
@@ -389,6 +433,459 @@ export default function CourierDashboard() {
     activeChatDeliveryRef.current =
       chatDelivery;
   }, [chatDelivery]);
+
+  /* ============================================================
+   * MANTÉM deliveriesRef ATUALIZADO
+   * ============================================================ */
+
+  useEffect(() => {
+    deliveriesRef.current =
+      deliveries;
+  }, [deliveries]);
+
+  /* ============================================================
+   * ALERTA DE NOVA CORRIDA — 5 SEGUNDOS
+   * ============================================================ */
+
+  const showIncomingDelivery =
+    useCallback((delivery) => {
+      if (!delivery) {
+        return;
+      }
+
+      if (
+        incomingDeliveryTimerRef.current
+      ) {
+        clearTimeout(
+          incomingDeliveryTimerRef.current
+        );
+      }
+
+      setIncomingDelivery(
+        delivery
+      );
+
+      try {
+        window.focus();
+      } catch {
+        // Alguns navegadores bloqueiam foco automático.
+      }
+
+      incomingDeliveryTimerRef.current =
+        setTimeout(() => {
+          if (mountedRef.current) {
+            setIncomingDelivery(
+              null
+            );
+          }
+
+          incomingDeliveryTimerRef.current =
+            null;
+        }, 5000);
+    }, []);
+
+  useEffect(() => {
+    return () => {
+      if (
+        incomingDeliveryTimerRef.current
+      ) {
+        clearTimeout(
+          incomingDeliveryTimerRef.current
+        );
+
+        incomingDeliveryTimerRef.current =
+          null;
+      }
+    };
+  }, []);
+
+  /* ============================================================
+   * FIREBASE / PUSH NOTIFICATIONS — ANDROID
+   * ============================================================ */
+
+  useEffect(() => {
+    if (!userId) {
+      return;
+    }
+
+    if (
+      !Capacitor.isNativePlatform()
+    ) {
+      return;
+    }
+
+    if (
+      Capacitor.getPlatform() !==
+      "android"
+    ) {
+      return;
+    }
+
+    if (
+      pushInitializedRef.current
+    ) {
+      return;
+    }
+
+    pushInitializedRef.current =
+      true;
+
+    let cancelled = false;
+
+    const initializePushNotifications =
+      async () => {
+        try {
+          console.log(
+            "[GiroExpress] Inicializando notificações push..."
+          );
+
+          const permission =
+            await PushNotifications.checkPermissions();
+
+          let permissionResult =
+            permission.receive;
+
+          if (
+            permissionResult !==
+            "granted"
+          ) {
+            const requested =
+              await PushNotifications.requestPermissions();
+
+            permissionResult =
+              requested.receive;
+          }
+
+          if (
+            permissionResult !==
+            "granted"
+          ) {
+            console.warn(
+              "[GiroExpress] Permissão para notificações não concedida."
+            );
+
+            return;
+          }
+
+          if (cancelled) {
+            return;
+          }
+
+          const registrationListener =
+            await PushNotifications.addListener(
+              "registration",
+              (token) => {
+                if (cancelled) {
+                  return;
+                }
+
+                const fcmToken =
+                  token?.value ||
+                  "";
+
+                if (!fcmToken) {
+                  return;
+                }
+
+                console.log(
+                  "[GiroExpress] Token FCM recebido."
+                );
+
+                try {
+                  localStorage.setItem(
+                    "giroexpress_fcm_token",
+                    fcmToken
+                  );
+                } catch (storageError) {
+                  console.warn(
+                    "[GiroExpress] Não foi possível guardar o token FCM:",
+                    storageError
+                  );
+                }
+              }
+            );
+
+          const registrationErrorListener =
+            await PushNotifications.addListener(
+              "registrationError",
+              (error) => {
+                console.error(
+                  "[GiroExpress] Erro no registro FCM:",
+                  error
+                );
+              }
+            );
+
+          const pushReceivedListener =
+            await PushNotifications.addListener(
+              "pushNotificationReceived",
+              async (notification) => {
+                if (cancelled) {
+                  return;
+                }
+
+                console.log(
+                  "[GiroExpress] Push recebido:",
+                  notification
+                );
+
+                const data =
+                  notification?.data ||
+                  {};
+
+                const deliveryId =
+                  data.delivery_id ||
+                  data.deliveryId ||
+                  data.id ||
+                  null;
+
+                const notificationTitle =
+                  notification?.title ||
+                  "GiroExpress";
+
+                const notificationBody =
+                  notification?.body ||
+                  "Nova corrida disponível.";
+
+                if (
+                  notifyOnRef.current
+                ) {
+                  await playBeep();
+
+                  toast.info(
+                    `🚚 ${notificationTitle}`,
+                    {
+                      description:
+                        notificationBody,
+                      duration: 8000,
+                    }
+                  );
+                }
+
+                if (deliveryId) {
+                  const normalizedId =
+                    String(
+                      deliveryId
+                    );
+
+                  /*
+                   * IMPORTANTE:
+                   * usamos deliveriesRef.current
+                   * em vez de deliveries.
+                   *
+                   * Isso evita que os listeners do
+                   * FCM sejam destruídos e recriados
+                   * a cada atualização da lista.
+                   */
+
+                  const existing =
+                    deliveriesRef.current.find(
+                      (delivery) =>
+                        String(
+                          delivery?.id ||
+                            delivery?._id ||
+                            ""
+                        ) ===
+                        normalizedId
+                    );
+
+                  if (existing) {
+                    showIncomingDelivery(
+                      existing
+                    );
+
+                    return;
+                  }
+
+                  try {
+                    await load();
+
+                    if (
+                      !mountedRef.current
+                    ) {
+                      return;
+                    }
+
+                    setTimeout(() => {
+                      if (
+                        !mountedRef.current
+                      ) {
+                        return;
+                      }
+
+                      const found =
+                        deliveriesRef.current.find(
+                          (delivery) =>
+                            String(
+                              delivery?.id ||
+                                delivery?._id ||
+                                ""
+                            ) ===
+                            normalizedId
+                        );
+
+                      if (found) {
+                        showIncomingDelivery(
+                          found
+                        );
+                      }
+                    }, 150);
+                  } catch (error) {
+                    console.warn(
+                      "[GiroExpress] Erro ao atualizar corrida após push:",
+                      error
+                    );
+                  }
+                } else {
+                  load();
+                }
+              }
+            );
+
+          const pushActionListener =
+            await PushNotifications.addListener(
+              "pushNotificationActionPerformed",
+              async (event) => {
+                if (cancelled) {
+                  return;
+                }
+
+                console.log(
+                  "[GiroExpress] Usuário abriu uma notificação:",
+                  event
+                );
+
+                const notification =
+                  event?.notification ||
+                  {};
+
+                const data =
+                  notification?.data ||
+                  {};
+
+                const deliveryId =
+                  data.delivery_id ||
+                  data.deliveryId ||
+                  data.id ||
+                  null;
+
+                if (deliveryId) {
+                  const normalizedId =
+                    String(
+                      deliveryId
+                    );
+
+                  const existing =
+                    deliveriesRef.current.find(
+                      (delivery) =>
+                        String(
+                          delivery?.id ||
+                            delivery?._id ||
+                            ""
+                        ) ===
+                        normalizedId
+                    );
+
+                  if (existing) {
+                    showIncomingDelivery(
+                      existing
+                    );
+
+                    return;
+                  }
+
+                  try {
+                    await load();
+
+                    setTimeout(() => {
+                      if (
+                        !mountedRef.current
+                      ) {
+                        return;
+                      }
+
+                      const found =
+                        deliveriesRef.current.find(
+                          (delivery) =>
+                            String(
+                              delivery?.id ||
+                                delivery?._id ||
+                                ""
+                            ) ===
+                            normalizedId
+                        );
+
+                      if (found) {
+                        showIncomingDelivery(
+                          found
+                        );
+                      }
+                    }, 150);
+                  } catch (error) {
+                    console.warn(
+                      "[GiroExpress] Erro ao abrir corrida pelo push:",
+                      error
+                    );
+                  }
+                } else {
+                  load();
+                }
+              }
+            );
+
+          pushListenersRef.current = [
+            registrationListener,
+            registrationErrorListener,
+            pushReceivedListener,
+            pushActionListener,
+          ];
+
+          if (!cancelled) {
+            await PushNotifications.register();
+
+            console.log(
+              "[GiroExpress] Registro FCM solicitado com sucesso."
+            );
+          }
+        } catch (error) {
+          console.error(
+            "[GiroExpress] Erro ao inicializar Push Notifications:",
+            error
+          );
+        }
+      };
+
+    initializePushNotifications();
+
+    return () => {
+      cancelled = true;
+
+      const listeners =
+        pushListenersRef.current;
+
+      pushListenersRef.current = [];
+
+      listeners.forEach(
+        (listener) => {
+          try {
+            listener?.remove?.();
+          } catch (error) {
+            console.warn(
+              "[GiroExpress] Erro ao remover listener push:",
+              error
+            );
+          }
+        }
+      );
+
+      pushInitializedRef.current =
+        false;
+    };
+  }, [
+    userId,
+    load,
+    showIncomingDelivery,
+  ]);
 
   /* ============================================================
    * ÁUDIO
@@ -861,6 +1358,10 @@ export default function CourierDashboard() {
                 fresh.length
             );
 
+            showIncomingDelivery(
+              fresh[0]
+            );
+
             fresh.forEach((d) => {
               const orderCode =
                 String(
@@ -1006,7 +1507,10 @@ export default function CourierDashboard() {
         }
       }
     },
-    [userId]
+    [
+      showIncomingDelivery,
+      userId,
+    ]
   );
 
   /* ============================================================
@@ -1032,6 +1536,57 @@ export default function CourierDashboard() {
 
       loadingDeliveriesRef.current =
         false;
+    };
+  }, [load, userId]);
+
+  /* ============================================================
+   * RETORNO DO APP / ABA MINIMIZADA
+   * ============================================================ */
+
+  useEffect(() => {
+    if (!userId) {
+      return;
+    }
+
+    const handleVisibilityChange = () => {
+      if (
+        document.visibilityState ===
+        "visible"
+      ) {
+        load();
+
+        try {
+          window.focus();
+        } catch {
+          // Ignora bloqueios do navegador.
+        }
+      }
+    };
+
+    const handleWindowFocus = () => {
+      load();
+    };
+
+    document.addEventListener(
+      "visibilitychange",
+      handleVisibilityChange
+    );
+
+    window.addEventListener(
+      "focus",
+      handleWindowFocus
+    );
+
+    return () => {
+      document.removeEventListener(
+        "visibilitychange",
+        handleVisibilityChange
+      );
+
+      window.removeEventListener(
+        "focus",
+        handleWindowFocus
+      );
     };
   }, [load, userId]);
 
@@ -1197,6 +1752,7 @@ export default function CourierDashboard() {
   const openAccount =
     async () => {
       setShowAccount(true);
+
       await loadAccount();
     };
 
@@ -1639,6 +2195,27 @@ export default function CourierDashboard() {
                   }
                 }
 
+                if (
+                  Capacitor.isNativePlatform()
+                ) {
+                  try {
+                    const permission =
+                      await PushNotifications.checkPermissions();
+
+                    if (
+                      permission.receive !==
+                      "granted"
+                    ) {
+                      await PushNotifications.requestPermissions();
+                    }
+                  } catch (error) {
+                    console.warn(
+                      "[GiroExpress] Erro ao solicitar permissão push:",
+                      error
+                    );
+                  }
+                }
+
                 await playBeep();
 
                 toast.success(
@@ -1947,7 +2524,7 @@ export default function CourierDashboard() {
                         ? "eis"
                         : ""
                     }`
-                  : "Limite atingido — conclua uma entrega"
+                  : "Limite atingido — conclua um pedido"
               }
             />
 
@@ -1979,76 +2556,165 @@ export default function CourierDashboard() {
               5. CICLO FINANCEIRO ATUAL
           ================================================== */}
 
-          <div className="mb-6 bg-slate-900 border border-orange-500/20 rounded-2xl p-6" data-testid="courier-billing-cycle">
+          <div
+            className="mb-6 bg-slate-900 border border-orange-500/20 rounded-2xl p-6"
+            data-testid="courier-billing-cycle"
+          >
             <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-5">
               <div>
                 <div className="flex items-center gap-2">
                   <DollarSign className="w-5 h-5 text-orange-400" />
-                  <h2 className="text-lg font-black text-white">Ciclo financeiro atual</h2>
+
+                  <h2 className="text-lg font-black text-white">
+                    Ciclo financeiro atual
+                  </h2>
                 </div>
+
                 <p className="text-sm text-slate-400 mt-1">
-                  {billingCycle?.period_start && billingCycle?.period_end
-                    ? `${formatCycleDate(billingCycle.period_start)} a ${formatCycleDate(billingCycle.period_end)}`
+                  {billingCycle?.period_start &&
+                  billingCycle?.period_end
+                    ? `${formatCycleDate(
+                        billingCycle.period_start
+                      )} a ${formatCycleDate(
+                        billingCycle.period_end
+                      )}`
                     : "Carregando período..."}
                 </p>
               </div>
 
               <span className="text-xs font-bold px-3 py-2 rounded-xl bg-orange-500/10 border border-orange-500/20 text-orange-300">
-                Fechamento: {billingCycle?.closing_weekday_label || "—"}
+                Fechamento:{" "}
+                {billingCycle?.closing_weekday_label ||
+                  "—"}
               </span>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-5">
               <StatCard
-                icon={<Package className="w-5 h-5" />}
+                icon={
+                  <Package className="w-5 h-5" />
+                }
                 label="Corridas"
-                value={Number(billingCycle?.total_deliveries || 0)}
+                value={Number(
+                  billingCycle?.total_deliveries ||
+                    0
+                )}
                 sub="No ciclo atual"
               />
 
               <StatCard
-                icon={<DollarSign className="w-5 h-5" />}
+                icon={
+                  <DollarSign className="w-5 h-5" />
+                }
                 label="Bruto"
-                value={formatBRL(Number(billingCycle?.total_gross || 0))}
+                value={formatBRL(
+                  Number(
+                    billingCycle?.total_gross ||
+                      0
+                  )
+                )}
                 sub="Movimentação das corridas"
               />
 
               <StatCard
-                icon={<DollarSign className="w-5 h-5" />}
+                icon={
+                  <DollarSign className="w-5 h-5" />
+                }
                 label="Total a receber"
-                value={formatBRL(Number(billingCycle?.total_to_pay ?? billingCycle?.total_courier ?? 0))}
+                value={formatBRL(
+                  Number(
+                    billingCycle?.total_to_pay ??
+                      billingCycle?.total_courier ??
+                      0
+                  )
+                )}
                 sub="Valor líquido do ciclo"
               />
             </div>
 
             <div className="border border-slate-800 rounded-2xl overflow-hidden">
               <div className="px-4 py-4 border-b border-slate-800">
-                <h3 className="font-bold text-white">Corridas do ciclo</h3>
-                <p className="text-xs text-slate-500 mt-1">Data, corrida, loja e valor bruto.</p>
+                <h3 className="font-bold text-white">
+                  Corridas do ciclo
+                </h3>
+
+                <p className="text-xs text-slate-500 mt-1">
+                  Data, corrida, loja e valor bruto.
+                </p>
               </div>
 
-              {(billingCycle?.delivery_details || []).length === 0 ? (
-                <p className="text-sm text-slate-400 py-8 text-center">Nenhuma corrida concluída neste ciclo.</p>
+              {(
+                billingCycle?.delivery_details ||
+                []
+              ).length === 0 ? (
+                <p className="text-sm text-slate-400 py-8 text-center">
+                  Nenhuma corrida concluída neste ciclo.
+                </p>
               ) : (
                 <div className="overflow-x-auto">
                   <table className="w-full text-sm">
                     <thead>
                       <tr className="border-b border-slate-800 text-slate-500 text-left">
-                        <th className="py-3 px-4">Data</th>
-                        <th className="py-3 px-4">Corrida</th>
-                        <th className="py-3 px-4">Loja</th>
-                        <th className="py-3 px-4 text-right">Valor</th>
+                        <th className="py-3 px-4">
+                          Data
+                        </th>
+
+                        <th className="py-3 px-4">
+                          Corrida
+                        </th>
+
+                        <th className="py-3 px-4">
+                          Loja
+                        </th>
+
+                        <th className="py-3 px-4 text-right">
+                          Valor
+                        </th>
                       </tr>
                     </thead>
+
                     <tbody>
-                      {(billingCycle?.delivery_details || []).map((item) => (
-                        <tr key={item.id || item.code} className="border-b border-slate-900 last:border-0">
-                          <td className="py-3 px-4 text-slate-300 whitespace-nowrap">{formatCycleDate(item.completed_at || item.date || item.created_at)}</td>
-                          <td className="py-3 px-4 text-white font-bold">{item.code || "—"}</td>
-                          <td className="py-3 px-4 text-slate-300">{item.store_name || "Loja"}</td>
-                          <td className="py-3 px-4 text-right text-emerald-400 font-bold whitespace-nowrap">{formatBRL(Number(item.gross_price || 0))}</td>
-                        </tr>
-                      ))}
+                      {(
+                        billingCycle?.delivery_details ||
+                        []
+                      ).map(
+                        (item) => (
+                          <tr
+                            key={
+                              item.id ||
+                              item.code
+                            }
+                            className="border-b border-slate-900 last:border-0"
+                          >
+                            <td className="py-3 px-4 text-slate-300 whitespace-nowrap">
+                              {formatCycleDate(
+                                item.completed_at ||
+                                  item.date ||
+                                  item.created_at
+                              )}
+                            </td>
+
+                            <td className="py-3 px-4 text-white font-bold">
+                              {item.code ||
+                                "—"}
+                            </td>
+
+                            <td className="py-3 px-4 text-slate-300">
+                              {item.store_name ||
+                                "Loja"}
+                            </td>
+
+                            <td className="py-3 px-4 text-right text-emerald-400 font-bold whitespace-nowrap">
+                              {formatBRL(
+                                Number(
+                                  item.gross_price ||
+                                    0
+                                )
+                              )}
+                            </td>
+                          </tr>
+                        )
+                      )}
                     </tbody>
                   </table>
                 </div>
@@ -2127,6 +2793,45 @@ export default function CourierDashboard() {
       )}
 
       {/* ======================================================
+          ALERTA DE NOVA CORRIDA — VISUALIZAÇÃO POR 5 SEGUNDOS
+      ====================================================== */}
+
+      {incomingDelivery && (
+        <IncomingDeliveryModal
+          delivery={incomingDelivery}
+          online={online}
+          acceptDisabled={!hasAvailableSlots}
+          onAccept={() => {
+            const id =
+              incomingDelivery.id ||
+              incomingDelivery._id;
+
+            setIncomingDelivery(
+              null
+            );
+
+            if (
+              incomingDeliveryTimerRef.current
+            ) {
+              clearTimeout(
+                incomingDeliveryTimerRef.current
+              );
+
+              incomingDeliveryTimerRef.current =
+                null;
+            }
+
+            if (id) {
+              act(
+                id,
+                "accept"
+              );
+            }
+          }}
+        />
+      )}
+
+      {/* ======================================================
           MODAL CONTA / PIX
       ====================================================== */}
 
@@ -2137,6 +2842,7 @@ export default function CourierDashboard() {
               <div>
                 <h2 className="text-xl font-black text-white flex items-center gap-2">
                   <CreditCard className="w-5 h-5 text-emerald-400" />
+
                   Conta / PIX
                 </h2>
 
@@ -2566,6 +3272,191 @@ function Section({
 }
 
 /* ============================================================
+ * ALERTA DE NOVA CORRIDA
+ * ============================================================ */
+
+function IncomingDeliveryModal({
+  delivery,
+  online,
+  acceptDisabled,
+  onAccept,
+}) {
+  const orderCode =
+    String(
+      delivery?.code ||
+        "PEDIDO"
+    )
+      .replace(/^#+/, "")
+      .trim();
+
+  const storeName =
+    String(
+      delivery?.store_name ||
+        "Loja"
+    )
+      .replace(/^#+/, "")
+      .trim();
+
+  const pickupAddress =
+    String(
+      delivery?.pickup_address ||
+        "Não informado"
+    )
+      .replace(/^#+/, "")
+      .trim();
+
+  const dropoffAddress =
+    String(
+      delivery?.dropoff_address ||
+        "Não informado"
+    )
+      .replace(/^#+/, "")
+      .trim();
+
+  const clientName =
+    String(
+      delivery?.client_name ||
+        "Cliente"
+    )
+      .replace(/^#+/, "")
+      .trim();
+
+  return (
+    <div
+      className="fixed inset-0 z-[200] bg-black/80 backdrop-blur-md flex items-center justify-center p-4 animate-in fade-in duration-200"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Nova corrida"
+    >
+      <div className="w-full max-w-lg bg-slate-950 border-2 border-orange-500/70 rounded-3xl shadow-2xl shadow-orange-500/20 overflow-hidden animate-in zoom-in-95 duration-200">
+        <div className="bg-orange-500 px-6 py-5 text-slate-950">
+          <div className="flex items-center justify-between gap-4">
+            <div>
+              <p className="text-xs font-black uppercase tracking-widest">
+                🚚 Nova corrida disponível
+              </p>
+
+              <h2 className="text-2xl font-black mt-1">
+                {orderCode}
+              </h2>
+            </div>
+
+            <div className="w-12 h-12 rounded-2xl bg-slate-950/15 flex items-center justify-center">
+              <Bike className="w-7 h-7" />
+            </div>
+          </div>
+        </div>
+
+        <div className="p-6 space-y-4">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <p className="text-xs text-slate-500">
+                Loja
+              </p>
+
+              <p className="font-black text-white text-lg">
+                {storeName}
+              </p>
+            </div>
+
+            <div className="text-right">
+              <p className="text-xs text-slate-500">
+                Você recebe
+              </p>
+
+              <p className="text-xl font-black text-emerald-400">
+                {formatBRL(
+                  delivery?.net_courier
+                )}
+              </p>
+            </div>
+          </div>
+
+          <div className="space-y-3">
+            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4">
+              <p className="text-xs text-rose-400 font-bold mb-1">
+                RETIRADA
+              </p>
+
+              <p className="text-sm text-white font-medium">
+                {pickupAddress}
+              </p>
+            </div>
+
+            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4">
+              <p className="text-xs text-emerald-400 font-bold mb-1">
+                ENTREGA • {clientName}
+              </p>
+
+              <p className="text-sm text-white font-medium">
+                {dropoffAddress}
+              </p>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div className="bg-slate-900 rounded-2xl p-3 border border-slate-800">
+              <p className="text-xs text-slate-500">
+                Distância
+              </p>
+
+              <p className="font-bold text-white">
+                {delivery?.distance_km ??
+                  0}{" "}
+                km
+              </p>
+            </div>
+
+            <div className="bg-slate-900 rounded-2xl p-3 border border-slate-800">
+              <p className="text-xs text-slate-500">
+                Tempo estimado
+              </p>
+
+              <p className="font-bold text-white">
+                ~
+                {delivery?.estimated_min ??
+                  0}{" "}
+                min
+              </p>
+            </div>
+          </div>
+
+          <div className="text-center pt-1">
+            <p className="text-xs text-slate-500">
+              Esta tela desaparece automaticamente em 5 segundos.
+            </p>
+          </div>
+
+          {online && !acceptDisabled && (
+            <button
+              type="button"
+              onClick={onAccept}
+              className="w-full bg-orange-500 hover:bg-orange-400 text-slate-950 font-black py-3.5 rounded-2xl transition shadow-lg shadow-orange-500/20 flex items-center justify-center gap-2"
+            >
+              <Play className="w-5 h-5 fill-current" />
+
+              Aceitar corrida
+            </button>
+          )}
+
+          {!online && (
+            <p className="text-center text-xs font-bold text-rose-400">
+              Você está OFFLINE. A corrida continuará disponível no painel.
+            </p>
+          )}
+
+          {acceptDisabled && (
+            <p className="text-center text-xs font-bold text-amber-400">
+              Limite de 8 corridas ativas atingido.
+            </p>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ============================================================
  * DELIVERY CARD
  * ============================================================ */
 
@@ -2645,7 +3536,11 @@ function DeliveryCard({
 
   const formattedRequestDate =
     requestDate
-      ? new Date(requestDate).toLocaleDateString("pt-BR")
+      ? new Date(
+          requestDate
+        ).toLocaleDateString(
+          "pt-BR"
+        )
       : "—";
 
   const storeName =
@@ -2717,7 +3612,8 @@ function DeliveryCard({
           </span>
 
           <span className="text-[11px] font-semibold text-slate-400 bg-slate-900 px-2.5 py-1 rounded border border-slate-800 whitespace-nowrap">
-            📅 {formattedRequestDate}
+            📅{" "}
+            {formattedRequestDate}
           </span>
         </div>
 
@@ -2955,3 +3851,4 @@ function DeliveryCard({
     </div>
   );
 }
+

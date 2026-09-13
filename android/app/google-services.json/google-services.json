@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "302988954738",
+    "project_id": "giroexpress",
+    "storage_bucket": "giroexpress.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:302988954738:android:be05b6901ba64cee8c86eb",
+        "android_client_info": {
+          "package_name": "com.giroexpress.ap"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyC-vbp6GGgczJNTbtGBXt85SlSpHFfnwBg"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

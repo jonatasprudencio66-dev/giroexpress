@@ -8,7 +8,6 @@ load_dotenv(ROOT_DIR / ".env")
 import os
 import uuid
 import logging
-import re
 from datetime import datetime, timezone, timedelta, date
 from typing import Optional
 from zoneinfo import ZoneInfo
@@ -16,6 +15,16 @@ from zoneinfo import ZoneInfo
 import bcrypt
 import jwt
 import requests
+import json
+import asyncio
+
+try:
+    import firebase_admin
+    from firebase_admin import credentials, messaging
+except ImportError:
+    firebase_admin = None
+    credentials = None
+    messaging = None
 
 from bson import ObjectId
 from pymongo.errors import DuplicateKeyError
@@ -95,6 +104,211 @@ APP_NAME = os.environ.get(
     "APP_NAME",
     "giroexpress",
 )
+
+# =========================================================
+# FIREBASE / FCM
+# =========================================================
+# Nunca coloque a chave JSON do Firebase no GitHub.
+# Em produção, defina FIREBASE_SERVICE_ACCOUNT_JSON como
+# uma variável de ambiente contendo o JSON da conta de serviço.
+FIREBASE_SERVICE_ACCOUNT_JSON = os.environ.get(
+    "FIREBASE_SERVICE_ACCOUNT_JSON",
+    "",
+).strip()
+
+_firebase_initialized = False
+
+
+def init_firebase():
+    """Inicializa o Firebase Admin uma única vez."""
+    global _firebase_initialized
+
+    if _firebase_initialized:
+        return True
+
+    if firebase_admin is None:
+        logger.warning(
+            "Firebase Admin não instalado. FCM desativado até instalar firebase-admin."
+        )
+        return False
+
+    if not FIREBASE_SERVICE_ACCOUNT_JSON:
+        logger.warning(
+            "FIREBASE_SERVICE_ACCOUNT_JSON não configurado. FCM desativado."
+        )
+        return False
+
+    try:
+        service_account_info = json.loads(
+            FIREBASE_SERVICE_ACCOUNT_JSON
+        )
+        cred = credentials.Certificate(
+            service_account_info
+        )
+        firebase_admin.initialize_app(cred)
+        _firebase_initialized = True
+        logger.info("Firebase Admin / FCM inicializado.")
+        return True
+    except Exception as exc:
+        logger.exception(
+            "Falha ao inicializar Firebase Admin: %s",
+            exc,
+        )
+        return False
+
+
+async def send_fcm_to_couriers(
+    delivery: dict,
+):
+    """Envia uma nova corrida aos entregadores online e aprovados."""
+    if not init_firebase():
+        return 0
+
+    couriers = await db.users.find(
+        {
+            "role": "courier",
+            "online": True,
+            "fcm_token": {
+                "$exists": True,
+                "$nin": [None, ""],
+            },
+        },
+        {
+            "_id": 1,
+            "fcm_token": 1,
+            "status": 1,
+            "approved": 1,
+            "is_approved": 1,
+        },
+    ).to_list(length=500)
+
+    tokens = []
+    token_user_ids = {}
+
+    for courier in couriers:
+        status = str(
+            courier.get("status", "")
+        ).lower()
+        approved = (
+            courier.get("approved") is True
+            or courier.get("is_approved") is True
+            or status in ("active", "approved")
+        )
+
+        if not approved:
+            continue
+
+        token = str(
+            courier.get("fcm_token", "")
+        ).strip()
+        if token:
+            tokens.append(token)
+            token_user_ids[token] = courier["_id"]
+
+    if not tokens:
+        return 0
+
+    delivery_id = str(
+        delivery.get("_id", "")
+    )
+    code = str(
+        delivery.get("code", "Nova corrida")
+    )
+    store_name = str(
+        delivery.get("store_name", "Loja")
+    )
+    gross_price = float(
+        delivery.get("gross_price", 0) or 0
+    )
+
+    message = messaging.MulticastMessage(
+        notification=messaging.Notification(
+            title="🚚 Nova corrida disponível!",
+            body=(
+                f"{code} • {store_name} • "
+                f"R$ {gross_price:.2f}"
+            ),
+        ),
+        data={
+            "type": "new_delivery",
+            "delivery_id": delivery_id,
+            "deliveryId": delivery_id,
+            "id": delivery_id,
+            "code": code,
+        },
+        android=messaging.AndroidConfig(
+            priority="high",
+            notification=messaging.AndroidNotification(
+                sound="default",
+            ),
+        ),
+        tokens=tokens,
+    )
+
+    try:
+        response = await asyncio.to_thread(
+            messaging.send_each_for_multicast,
+            message,
+        )
+    except AttributeError:
+        response = await asyncio.to_thread(
+            messaging.send_multicast,
+            message,
+        )
+    except Exception as exc:
+        logger.exception(
+            "Erro ao enviar FCM da corrida %s: %s",
+            delivery_id,
+            exc,
+        )
+        return 0
+
+    invalid_tokens = []
+    success_count = 0
+
+    for index, send_response in enumerate(
+        response.responses
+    ):
+        if send_response.success:
+            success_count += 1
+            continue
+
+        error = send_response.exception
+        error_text = str(error).lower()
+
+        if (
+            "unregistered" in error_text
+            or "registration-token-not-registered" in error_text
+            or "invalidargumenterror" in error_text
+        ):
+            invalid_tokens.append(
+                tokens[index]
+            )
+
+    if invalid_tokens:
+        await db.users.update_many(
+            {
+                "fcm_token": {
+                    "$in": invalid_tokens
+                }
+            },
+            {
+                "$unset": {
+                    "fcm_token": "",
+                    "fcm_platform": "",
+                    "fcm_updated_at": "",
+                }
+            },
+        )
+
+    logger.info(
+        "FCM nova corrida %s: %s enviados, %s tokens inválidos.",
+        delivery_id,
+        success_count,
+        len(invalid_tokens),
+    )
+
+    return success_count
 
 
 # =========================================================
@@ -825,6 +1039,15 @@ class CourierOnlineIn(BaseModel):
     online: bool
 
 
+class FcmTokenIn(BaseModel):
+
+    token: str = Field(
+        min_length=10,
+        max_length=4096,
+    )
+    platform: Optional[str] = "android"
+
+
 class ProductIn(BaseModel):
 
     name: str
@@ -942,6 +1165,11 @@ async def startup():
     await db.users.create_index(
         "email",
         unique=True,
+    )
+
+    await db.users.create_index(
+        "fcm_token",
+        sparse=True,
     )
 
     await db.deliveries.create_index(
@@ -1814,6 +2042,18 @@ async def create_delivery(
     )
 
     doc["_id"] = r.inserted_id
+
+    # O WebSocket continua funcionando normalmente.
+    # O FCM é um canal adicional para quando o app estiver minimizado.
+    try:
+        await send_fcm_to_couriers(doc)
+    except Exception as exc:
+        # Uma falha no FCM nunca pode impedir a loja de criar a corrida.
+        logger.exception(
+            "Falha no FCM após criar a corrida %s: %s",
+            str(doc.get("_id")),
+            exc,
+        )
 
     return delivery_to_public(
         doc
@@ -3694,6 +3934,75 @@ async def system_status_direct():
 
 
 # =========================================================
+# TOKEN FCM DO ENTREGADOR
+# =========================================================
+
+@app.post("/couriers/me/fcm-token")
+@app.post("/api/couriers/me/fcm-token")
+async def register_courier_fcm_token(
+    body: FcmTokenIn,
+    user: dict = Depends(
+        require_roles("courier")
+    ),
+):
+    token = body.token.strip()
+
+    if not token:
+        raise HTTPException(
+            status_code=400,
+            detail="Token FCM inválido.",
+        )
+
+    await db.users.update_one(
+        {
+            "_id": user["_id"]
+        },
+        {
+            "$set": {
+                "fcm_token": token,
+                "fcm_platform": (
+                    body.platform or "android"
+                ).strip().lower(),
+                "fcm_updated_at": now_iso(),
+            }
+        },
+    )
+
+    logger.info(
+        "Token FCM registrado para entregador %s.",
+        str(user["_id"]),
+    )
+
+    return {
+        "ok": True,
+        "message": "Token FCM registrado com sucesso.",
+    }
+
+
+@app.delete("/couriers/me/fcm-token")
+@app.delete("/api/couriers/me/fcm-token")
+async def delete_courier_fcm_token(
+    user: dict = Depends(
+        require_roles("courier")
+    ),
+):
+    await db.users.update_one(
+        {"_id": user["_id"]},
+        {
+            "$unset": {
+                "fcm_token": "",
+                "fcm_platform": "",
+                "fcm_updated_at": "",
+            }
+        },
+    )
+
+    return {
+        "ok": True,
+    }
+
+
+# =========================================================
 # ENTREGADOR ONLINE / OFFLINE
 # =========================================================
 
@@ -4419,7 +4728,7 @@ async def get_store_current_billing(
 ):
     store_id = str(user.get("_id", user.get("id", "")))
 
-    closing_weekday = await get_store_billing_weekday(store_id)
+    closing_weekday = await get_store_closing_weekday(store_id)
     today = datetime.now(BRAZIL_TZ).date()
     period_start, period_end = cycle_for_date(
         today,
