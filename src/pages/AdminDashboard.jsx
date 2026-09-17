@@ -1481,6 +1481,8 @@ export default function AdminDashboard() {
   const giroCurrentReceivable = billing.current_cycles.reduce(
     (sum, cycle) =>
       sum + Number(
+        cycle?.total_gross ??
+        cycle?.total_billing ??
         cycle?.total_to_pay ??
         cycle?.total_amount ??
         cycle?.total_fee ??
@@ -2258,12 +2260,17 @@ export default function AdminDashboard() {
 
                         <div className="rounded-xl border border-slate-800 bg-slate-900 p-4">
                           <p className="text-xs text-slate-500">
-                            Taxa do ciclo
+                            Valor do ciclo
                           </p>
 
                           <p className="text-xl font-bold text-emerald-400 mt-1">
                             {formatBRL(
-                              cycle?.total_fee || 0
+                              Number(
+                                cycle?.total_gross ??
+                                  cycle?.total_billing ??
+                                  cycle?.total_fee ??
+                                  0
+                              )
                             )}
                           </p>
                         </div>
@@ -2496,8 +2503,12 @@ export default function AdminDashboard() {
 
                           <td className="px-4 py-4 text-emerald-400 font-semibold">
                             {formatBRL(
-                              cycle.total_fee ||
-                                0
+                              Number(
+                                cycle?.total_gross ??
+                                  cycle?.total_billing ??
+                                  cycle?.total_fee ??
+                                  0
+                              )
                             )}
                           </td>
 
@@ -2971,7 +2982,7 @@ export default function AdminDashboard() {
                           <tr key={`period-store-${item?.id || index}`} className="border-b border-slate-800/70 last:border-0">
                             <td className="px-4 py-4 text-white font-semibold">{normalizeText(item?.name, "Loja")}</td>
                             <td className="px-4 py-4 text-slate-300">{Number(item?.total_deliveries || 0)}</td>
-                            <td className="px-4 py-4 text-emerald-400 font-bold">{formatBRL(Number(item?.total_fee ?? item?.total_billing ?? 0))}</td>
+                            <td className="px-4 py-4 text-emerald-400 font-bold">{formatBRL(Number(item?.total_gross ?? item?.total_billing ?? item?.total_fee ?? 0))}</td>
                           </tr>
                         ))}
                       </tbody>
@@ -3097,8 +3108,12 @@ export default function AdminDashboard() {
 
                         <td className="px-4 py-4 text-emerald-400 font-semibold">
                           {formatBRL(
-                            item.total_fee ||
-                              0
+                            Number(
+                              item?.total_gross ??
+                                item?.total_billing ??
+                                item?.total_fee ??
+                                0
+                            )
                           )}
                         </td>
                       </tr>

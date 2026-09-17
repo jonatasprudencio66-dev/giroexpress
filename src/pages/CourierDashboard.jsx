@@ -177,7 +177,6 @@ function playBeepSound(ctx) {
     );
 
     oscillator2.start(secondStart);
-
     oscillator2.stop(
       secondStart + 0.35
     );
@@ -245,7 +244,12 @@ function showBrowserNotification(
       );
 
     notification.onclick = () => {
-      window.focus();
+      try {
+        window.focus();
+      } catch {
+        // Ignora
+      }
+
       notification.close();
     };
 
@@ -265,7 +269,7 @@ function showBrowserNotification(
 }
 
 /* ============================================================
- * DASHBOARD DO MOTOBOY
+ * FORMATAÇÃO
  * ============================================================ */
 
 function formatCycleDate(value) {
@@ -282,6 +286,10 @@ function formatCycleDate(value) {
 
   return `${match[3]}/${match[2]}/${match[1]}`;
 }
+
+/* ============================================================
+ * DASHBOARD DO MOTOBOY
+ * ============================================================ */
 
 export default function CourierDashboard() {
   const { user, refresh } = useAuth();
@@ -385,13 +393,6 @@ export default function CourierDashboard() {
   const loadGenerationRef =
     useRef(0);
 
-  /* ============================================================
-   * NOVA REF IMPORTANTE
-   *
-   * Mantém sempre a lista mais recente de corridas
-   * sem obrigar o efeito do FCM a ser recriado.
-   * ============================================================ */
-
   const deliveriesRef =
     useRef([]);
 
@@ -420,23 +421,17 @@ export default function CourierDashboard() {
   }, []);
 
   useEffect(() => {
-    onlineRef.current =
-      online;
+    onlineRef.current = online;
   }, [online]);
 
   useEffect(() => {
-    notifyOnRef.current =
-      notifyOn;
+    notifyOnRef.current = notifyOn;
   }, [notifyOn]);
 
   useEffect(() => {
     activeChatDeliveryRef.current =
       chatDelivery;
   }, [chatDelivery]);
-
-  /* ============================================================
-   * MANTÉM deliveriesRef ATUALIZADO
-   * ============================================================ */
 
   useEffect(() => {
     deliveriesRef.current =
@@ -445,6 +440,11 @@ export default function CourierDashboard() {
 
   /* ============================================================
    * ALERTA DE NOVA CORRIDA — 5 SEGUNDOS
+   *
+   * IMPORTANTE:
+   * Essa função NÃO depende de WebSocket.
+   * O FCM pode chamá-la mesmo depois que o app
+   * retorna do segundo plano.
    * ============================================================ */
 
   const showIncomingDelivery =
@@ -459,18 +459,41 @@ export default function CourierDashboard() {
         clearTimeout(
           incomingDeliveryTimerRef.current
         );
+
+        incomingDeliveryTimerRef.current =
+          null;
       }
 
+      console.log(
+        "[GiroExpress] Abrindo tela da nova corrida:",
+        delivery?.id ||
+          delivery?._id
+      );
+
+      /*
+       * Primeiro mostra a corrida.
+       */
       setIncomingDelivery(
         delivery
       );
 
+      /*
+       * No navegador, tentamos recuperar o foco.
+       *
+       * No Android/Capacitor, quem traz a Activity
+       * para frente é o sistema Android através
+       * da ação da notificação. O window.focus()
+       * serve apenas como apoio para WebView/browser.
+       */
       try {
         window.focus();
       } catch {
-        // Alguns navegadores bloqueiam foco automático.
+        // Ignora
       }
 
+      /*
+       * A tela permanece por 5 segundos.
+       */
       incomingDeliveryTimerRef.current =
         setTimeout(() => {
           if (mountedRef.current) {
@@ -616,6 +639,12 @@ export default function CourierDashboard() {
               }
             );
 
+          /* ======================================================
+           * PUSH RECEBIDO
+           *
+           * Executado quando o app recebe o push.
+           * ====================================================== */
+
           const pushReceivedListener =
             await PushNotifications.addListener(
               "pushNotificationReceived",
@@ -662,85 +691,94 @@ export default function CourierDashboard() {
                   );
                 }
 
-                if (deliveryId) {
-                  const normalizedId =
-                    String(
-                      deliveryId
-                    );
+                if (!deliveryId) {
+                  await load();
+                  return;
+                }
 
-                  /*
-                   * IMPORTANTE:
-                   * usamos deliveriesRef.current
-                   * em vez de deliveries.
-                   *
-                   * Isso evita que os listeners do
-                   * FCM sejam destruídos e recriados
-                   * a cada atualização da lista.
-                   */
+                const normalizedId =
+                  String(
+                    deliveryId
+                  );
 
-                  const existing =
-                    deliveriesRef.current.find(
-                      (delivery) =>
-                        String(
-                          delivery?.id ||
-                            delivery?._id ||
-                            ""
-                        ) ===
-                        normalizedId
-                    );
+                /*
+                 * Primeiro verifica se a corrida já
+                 * está na memória.
+                 */
+                const existing =
+                  deliveriesRef.current.find(
+                    (delivery) =>
+                      String(
+                        delivery?.id ||
+                          delivery?._id ||
+                          ""
+                      ) ===
+                      normalizedId
+                  );
 
-                  if (existing) {
-                    showIncomingDelivery(
-                      existing
-                    );
+                if (existing) {
+                  showIncomingDelivery(
+                    existing
+                  );
 
+                  return;
+                }
+
+                /*
+                 * Se ainda não estiver na lista,
+                 * atualiza as corridas.
+                 */
+                try {
+                  await load();
+
+                  if (
+                    !mountedRef.current
+                  ) {
                     return;
                   }
 
-                  try {
-                    await load();
-
+                  /*
+                   * Aguarda o React atualizar deliveriesRef.
+                   */
+                  setTimeout(() => {
                     if (
                       !mountedRef.current
                     ) {
                       return;
                     }
 
-                    setTimeout(() => {
-                      if (
-                        !mountedRef.current
-                      ) {
-                        return;
-                      }
+                    const found =
+                      deliveriesRef.current.find(
+                        (delivery) =>
+                          String(
+                            delivery?.id ||
+                              delivery?._id ||
+                              ""
+                          ) ===
+                          normalizedId
+                      );
 
-                      const found =
-                        deliveriesRef.current.find(
-                          (delivery) =>
-                            String(
-                              delivery?.id ||
-                                delivery?._id ||
-                                ""
-                            ) ===
-                            normalizedId
-                        );
-
-                      if (found) {
-                        showIncomingDelivery(
-                          found
-                        );
-                      }
-                    }, 150);
-                  } catch (error) {
-                    console.warn(
-                      "[GiroExpress] Erro ao atualizar corrida após push:",
-                      error
-                    );
-                  }
-                } else {
-                  load();
+                    if (found) {
+                      showIncomingDelivery(
+                        found
+                      );
+                    }
+                  }, 200);
+                } catch (error) {
+                  console.warn(
+                    "[GiroExpress] Erro ao atualizar corrida após push:",
+                    error
+                  );
                 }
               }
             );
+
+          /* ======================================================
+           * USUÁRIO TOCOU NA NOTIFICAÇÃO
+           *
+           * Este é o fluxo principal quando o aplicativo
+           * estava minimizado/em segundo plano.
+           * ====================================================== */
 
           const pushActionListener =
             await PushNotifications.addListener(
@@ -754,6 +792,18 @@ export default function CourierDashboard() {
                   "[GiroExpress] Usuário abriu uma notificação:",
                   event
                 );
+
+                /*
+                 * O Android normalmente já trouxe a
+                 * Activity do aplicativo para frente
+                 * neste momento.
+                 */
+
+                try {
+                  window.focus();
+                } catch {
+                  // Ignora
+                }
 
                 const notification =
                   event?.notification ||
@@ -769,66 +819,86 @@ export default function CourierDashboard() {
                   data.id ||
                   null;
 
-                if (deliveryId) {
-                  const normalizedId =
-                    String(
-                      deliveryId
-                    );
+                if (!deliveryId) {
+                  await load();
+                  return;
+                }
 
-                  const existing =
-                    deliveriesRef.current.find(
-                      (delivery) =>
-                        String(
-                          delivery?.id ||
-                            delivery?._id ||
-                            ""
-                        ) ===
-                        normalizedId
-                    );
+                const normalizedId =
+                  String(
+                    deliveryId
+                  );
 
-                  if (existing) {
-                    showIncomingDelivery(
-                      existing
-                    );
+                const existing =
+                  deliveriesRef.current.find(
+                    (delivery) =>
+                      String(
+                        delivery?.id ||
+                          delivery?._id ||
+                          ""
+                      ) ===
+                      normalizedId
+                  );
 
+                /*
+                 * Se a corrida já existe na memória,
+                 * abre imediatamente.
+                 */
+                if (existing) {
+                  showIncomingDelivery(
+                    existing
+                  );
+
+                  return;
+                }
+
+                /*
+                 * Caso contrário, busca novamente
+                 * no backend.
+                 */
+                try {
+                  await load();
+
+                  if (
+                    !mountedRef.current
+                  ) {
                     return;
                   }
 
-                  try {
-                    await load();
+                  setTimeout(() => {
+                    if (
+                      !mountedRef.current
+                    ) {
+                      return;
+                    }
 
-                    setTimeout(() => {
-                      if (
-                        !mountedRef.current
-                      ) {
-                        return;
-                      }
+                    const found =
+                      deliveriesRef.current.find(
+                        (delivery) =>
+                          String(
+                            delivery?.id ||
+                              delivery?._id ||
+                              ""
+                          ) ===
+                          normalizedId
+                      );
 
-                      const found =
-                        deliveriesRef.current.find(
-                          (delivery) =>
-                            String(
-                              delivery?.id ||
-                                delivery?._id ||
-                                ""
-                            ) ===
-                            normalizedId
-                        );
-
-                      if (found) {
-                        showIncomingDelivery(
-                          found
-                        );
-                      }
-                    }, 150);
-                  } catch (error) {
-                    console.warn(
-                      "[GiroExpress] Erro ao abrir corrida pelo push:",
-                      error
-                    );
-                  }
-                } else {
-                  load();
+                    if (found) {
+                      showIncomingDelivery(
+                        found
+                      );
+                    } else {
+                      console.warn(
+                        "[GiroExpress] Corrida do push não encontrada:",
+                        normalizedId
+                      );
+                    }
+                  }, 250);
+                } catch (error) {
+                  console.warn(
+                    "[GiroExpress] Erro ao abrir corrida pelo push:",
+                    error
+                  );
                 }
               }
             );
@@ -883,7 +953,6 @@ export default function CourierDashboard() {
     };
   }, [
     userId,
-    load,
     showIncomingDelivery,
   ]);
 
@@ -962,7 +1031,9 @@ export default function CourierDashboard() {
   }, []);
 
   /* ============================================================
-   * WEBSOCKET
+   * WEBSOCKET — CHAT
+   *
+   * NÃO ALTERADO NA LÓGICA.
    * ============================================================ */
 
   useEffect(() => {
@@ -1548,24 +1619,26 @@ export default function CourierDashboard() {
       return;
     }
 
-    const handleVisibilityChange = () => {
-      if (
-        document.visibilityState ===
-        "visible"
-      ) {
-        load();
+    const handleVisibilityChange =
+      () => {
+        if (
+          document.visibilityState ===
+          "visible"
+        ) {
+          load();
 
-        try {
-          window.focus();
-        } catch {
-          // Ignora bloqueios do navegador.
+          try {
+            window.focus();
+          } catch {
+            // Ignora
+          }
         }
-      }
-    };
+      };
 
-    const handleWindowFocus = () => {
-      load();
-    };
+    const handleWindowFocus =
+      () => {
+        load();
+      };
 
     document.addEventListener(
       "visibilitychange",
@@ -2301,10 +2374,6 @@ export default function CourierDashboard() {
         </div>
       ) : (
         <>
-          {/* ==================================================
-              1. CORRIDAS DISPONÍVEIS
-          ================================================== */}
-
           <div className="mb-6">
             <Section
               title="Corridas Disponíveis"
@@ -2365,10 +2434,6 @@ export default function CourierDashboard() {
               )}
             </Section>
           </div>
-
-          {/* ==================================================
-              2. CORRIDAS EM ANDAMENTO
-          ================================================== */}
 
           <div className="mb-6">
             <Section
@@ -2439,10 +2504,6 @@ export default function CourierDashboard() {
             </Section>
           </div>
 
-          {/* ==================================================
-              3. HISTÓRICO DE CORRIDAS
-          ================================================== */}
-
           <div className="mb-6">
             <Section
               title="Histórico de Corridas"
@@ -2483,10 +2544,6 @@ export default function CourierDashboard() {
               )}
             </Section>
           </div>
-
-          {/* ==================================================
-              4. RESUMO / INDICADORES
-          ================================================== */}
 
           <div
             className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6"
@@ -2551,10 +2608,6 @@ export default function CourierDashboard() {
               sub="Prontas para aceitar"
             />
           </div>
-
-          {/* ==================================================
-              5. CICLO FINANCEIRO ATUAL
-          ================================================== */}
 
           <div
             className="mb-6 bg-slate-900 border border-orange-500/20 rounded-2xl p-6"
@@ -2722,10 +2775,6 @@ export default function CourierDashboard() {
             </div>
           </div>
 
-          {/* ==================================================
-              6. CAPACIDADE DA ROTA
-          ================================================== */}
-
           <div
             className={`mb-6 rounded-2xl border p-4 ${
               hasAvailableSlots
@@ -2793,14 +2842,18 @@ export default function CourierDashboard() {
       )}
 
       {/* ======================================================
-          ALERTA DE NOVA CORRIDA — VISUALIZAÇÃO POR 5 SEGUNDOS
+          ALERTA DE NOVA CORRIDA — 5 SEGUNDOS
       ====================================================== */}
 
       {incomingDelivery && (
         <IncomingDeliveryModal
-          delivery={incomingDelivery}
+          delivery={
+            incomingDelivery
+          }
           online={online}
-          acceptDisabled={!hasAvailableSlots}
+          acceptDisabled={
+            !hasAvailableSlots
+          }
           onAccept={() => {
             const id =
               incomingDelivery.id ||
