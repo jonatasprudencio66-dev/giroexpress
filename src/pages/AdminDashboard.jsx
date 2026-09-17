@@ -347,6 +347,7 @@ export default function AdminDashboard() {
   const [deliveryDateStart, setDeliveryDateStart] = useState("");
   const [deliveryDateEnd, setDeliveryDateEnd] = useState("");
   const [selectedDelivery, setSelectedDelivery] = useState(null);
+  const [expandedBillingCycles, setExpandedBillingCycles] = useState({});
 
   const getTodayInputDate = () => {
     const now = new Date();
@@ -2308,6 +2309,22 @@ export default function AdminDashboard() {
 
                       <div className="flex flex-wrap gap-3 mt-5">
 
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setExpandedBillingCycles((prev) => ({
+                              ...prev,
+                              [storeId]: !prev[storeId],
+                            }))
+                          }
+                          className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-700 bg-slate-900 px-4 py-2.5 text-sm font-semibold text-slate-200 hover:bg-slate-800"
+                        >
+                          {expandedBillingCycles[storeId]
+                            ? "Ocultar detalhes"
+                            : "Ver detalhes do ciclo"}
+                        </button>
+
+
                         {String(
                           cycleStatus
                         ).toLowerCase() ===
@@ -2365,7 +2382,65 @@ export default function AdminDashboard() {
                             </button>
                           )}
 
-                        {String(
+                        {expandedBillingCycles[storeId] && (
+                        <div className="mt-4 rounded-xl border border-slate-800 bg-slate-950 p-4">
+                          <p className="text-sm font-semibold text-white mb-3">
+                            Detalhes do ciclo
+                          </p>
+                          {Array.isArray(cycle?.delivery_details) &&
+                          cycle.delivery_details.length > 0 ? (
+                            <div className="overflow-x-auto rounded-lg border border-slate-800">
+                              <table className="w-full text-xs">
+                                <thead>
+                                  <tr className="border-b border-slate-800 text-left">
+                                    <th className="px-3 py-2 text-slate-500">Data</th>
+                                    <th className="px-3 py-2 text-slate-500">Corrida</th>
+                                    <th className="px-3 py-2 text-slate-500">Entregador</th>
+                                    <th className="px-3 py-2 text-slate-500">Valor</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {cycle.delivery_details.map((delivery, detailIndex) => (
+                                    <tr
+                                      key={`${storeId}-cycle-detail-${delivery?.id || detailIndex}`}
+                                      className="border-b border-slate-800/70 last:border-0"
+                                    >
+                                      <td className="px-3 py-2 text-slate-300 whitespace-nowrap">
+                                        {formatDateTimeBR(
+                                          delivery?.date ||
+                                          delivery?.completed_at ||
+                                          delivery?.created_at
+                                        )}
+                                      </td>
+                                      <td className="px-3 py-2 text-white font-medium">
+                                        {normalizeText(
+                                          delivery?.code,
+                                          delivery?.id || "—"
+                                        )}
+                                      </td>
+                                      <td className="px-3 py-2 text-slate-300">
+                                        {normalizeText(
+                                          delivery?.courier_name,
+                                          "Não informado"
+                                        )}
+                                      </td>
+                                      <td className="px-3 py-2 text-emerald-400 font-semibold">
+                                        {formatBRL(Number(delivery?.gross_price || 0))}
+                                      </td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </div>
+                          ) : (
+                            <p className="text-sm text-slate-500">
+                              Nenhuma entrega concluída neste ciclo.
+                            </p>
+                          )}
+                        </div>
+                      )}
+
+                      {String(
                           cycleStatus
                         ).toLowerCase() ===
                           "paid" && (

@@ -5154,9 +5154,21 @@ async def admin_billing(
             period_end, 
         ) 
  
+        existing_store_cycle = await db.store_billing_cycles.find_one(
+            {
+                "store_id": store_id,
+                "period_start": period_start.isoformat(),
+                "period_end": period_end.isoformat(),
+            }
+        )
+
         current_cycles.append( 
             { 
-                "id": None, 
+                "id": (
+                    str(existing_store_cycle["_id"])
+                    if existing_store_cycle and existing_store_cycle.get("_id") is not None
+                    else None
+                ), 
                 "store_id": store_id, 
                 "store_name": store.get( 
                     "name", 
@@ -5213,11 +5225,31 @@ async def admin_billing(
                         [], 
                     ) 
                 ), 
-                "status": "open", 
-                "closed_at": None, 
-                "paid_at": None, 
-                "created_at": None, 
-                "updated_at": None, 
+                "status": (
+                    existing_store_cycle.get("status", "open")
+                    if existing_store_cycle
+                    else "open"
+                ),
+                "closed_at": (
+                    existing_store_cycle.get("closed_at")
+                    if existing_store_cycle
+                    else None
+                ),
+                "paid_at": (
+                    existing_store_cycle.get("paid_at")
+                    if existing_store_cycle
+                    else None
+                ),
+                "created_at": (
+                    existing_store_cycle.get("created_at")
+                    if existing_store_cycle
+                    else None
+                ),
+                "updated_at": (
+                    existing_store_cycle.get("updated_at")
+                    if existing_store_cycle
+                    else None
+                ),
             } 
         ) 
  
