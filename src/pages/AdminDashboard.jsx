@@ -1425,7 +1425,10 @@ export default function AdminDashboard() {
         (sum, cycle) =>
           sum +
           Number(
-            cycle?.total_fee || 0
+            cycle?.total_gross ??
+              cycle?.total_billing ??
+              cycle?.total_fee ??
+              0
           ),
         0
       );
@@ -1443,7 +1446,10 @@ export default function AdminDashboard() {
         (sum, cycle) =>
           sum +
           Number(
-            cycle?.total_fee || 0
+            cycle?.total_gross ??
+              cycle?.total_billing ??
+              cycle?.total_fee ??
+              0
           ),
         0
       );
@@ -1461,7 +1467,10 @@ export default function AdminDashboard() {
         (sum, cycle) =>
           sum +
           Number(
-            cycle?.total_fee || 0
+            cycle?.total_gross ??
+              cycle?.total_billing ??
+              cycle?.total_fee ??
+              0
           ),
         0
       );
@@ -1510,7 +1519,11 @@ export default function AdminDashboard() {
     billing.history.reduce((groups, cycle) => {
       const label =
         cycle?.cycle_label ||
-        `${formatDateBR(cycle?.start_date)} até ${formatDateBR(cycle?.end_date)}`;
+        `${formatDateBR(
+          cycle?.period_start || cycle?.start_date
+        )} até ${formatDateBR(
+          cycle?.period_end || cycle?.end_date
+        )}`;
 
       if (!groups[label]) {
         groups[label] = {
@@ -2085,7 +2098,7 @@ export default function AdminDashboard() {
               </h2>
 
               <p className="text-sm text-slate-400 mt-1">
-                Configure o dia de fechamento e acompanhe cada ciclo semanal.
+                Configure o dia de fechamento e feche o ciclo manualmente em qualquer data.
               </p>
             </div>
 
@@ -2319,7 +2332,7 @@ export default function AdminDashboard() {
                               <CheckCircle2 className="w-4 h-4" />
                             )}
 
-                            Fechar ciclo
+                            Fechar ciclo agora
                           </button>
                         )}
 
@@ -2402,7 +2415,7 @@ export default function AdminDashboard() {
               </h2>
 
               <p className="text-sm text-slate-400 mt-1">
-                Todos os ciclos já fechados ou pagos.
+                Exibe somente um registro por ciclo fechado ou pago.
               </p>
             </div>
           </div>
@@ -2478,9 +2491,9 @@ export default function AdminDashboard() {
                             {normalizeText(
                               cycle.cycle_label,
                               `${formatDateBR(
-                                cycle.start_date
+                                cycle.period_start || cycle.start_date
                               )} até ${formatDateBR(
-                                cycle.end_date
+                                cycle.period_end || cycle.end_date
                               )}`
                             )}
                           </td>
@@ -2600,7 +2613,7 @@ export default function AdminDashboard() {
                   Pagamentos dos entregadores
                 </h2>
                 <p className="text-sm text-slate-400 mt-1">
-                  Acompanhe as entregas concluídas, valores a pagar e confirme os pagamentos dos motoboys.
+                  Acompanhe o valor consolidado de cada ciclo e confirme o pagamento do ciclo.
                 </p>
               </div>
             </div>
@@ -2769,7 +2782,7 @@ export default function AdminDashboard() {
 
               <div>
                 <h3 className="text-base font-semibold text-white mb-3">
-                  Histórico de pagamentos dos entregadores
+                  Histórico de ciclos dos entregadores
                 </h3>
 
                 {billing.courier_history.length === 0 ? (

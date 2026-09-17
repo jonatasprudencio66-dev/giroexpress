@@ -3528,6 +3528,8 @@ async def admin_stats_direct(
                 "store_name": store_name, 
                 "date": date_str, 
                 "deliveries_count": 0, 
+                "total_gross": 0.0, 
+                "total_platform_fee": 0.0, 
                 "total_fee": 0.0, 
             } 
  
@@ -3536,12 +3538,29 @@ async def admin_stats_direct(
         ] += 1 
  
         store_fees_map[key][ 
-            "total_fee" 
+            "total_gross" 
+        ] += gross_price 
+ 
+        store_fees_map[key][ 
+            "total_platform_fee" 
         ] += fee 
+ 
+        # Compatibilidade: total_fee = valor integral cobrado da loja. 
+        store_fees_map[key][ 
+            "total_fee" 
+        ] += gross_price 
  
     collected_fees = round( 
         sum( 
-            item["total_fee"] 
+            item["total_platform_fee"] 
+            for item in store_fees_map.values() 
+        ), 
+        2, 
+    ) 
+ 
+    total_store_billing_dashboard = round( 
+        sum( 
+            item["total_gross"] 
             for item in store_fees_map.values() 
         ), 
         2, 
@@ -3581,6 +3600,8 @@ async def admin_stats_direct(
     return { 
         "platform_fees_collected": collected_fees, 
         "platform_fee_per_delivery": PLATFORM_FEE, 
+        "store_billing_total": total_store_billing_dashboard, 
+        "total_store_billing": total_store_billing_dashboard, 
         "total_users": total_users, 
         "total_stores": total_stores, 
         "total_couriers": total_couriers, 
@@ -4388,6 +4409,48 @@ async def get_store_billing_weekday(
  
  
 # ========================================================= 
+async def get_current_billing_period(
+    collection, entity_field: str, entity_id: str, today: date, closing_weekday: int
+):
+    latest_closed = await collection.find_one(
+        {entity_field: str(entity_id), "status": {"$in": ["closed", "paid"]}},
+        sort=[("period_end", -1)],
+    )
+    latest_end = None
+    if latest_closed and latest_closed.get("period_end"):
+        try:
+            latest_end = date.fromisoformat(str(latest_closed["period_end"])[:10])
+        except Exception:
+            latest_end = None
+    if latest_end is not None:
+        period_start = latest_end + timedelta(days=1)
+        _, period_end = cycle_for_date(period_start, closing_weekday)
+        return period_start, period_end
+    return cycle_for_date(today, closing_weekday)
+
+
+async def get_manual_billing_period(
+    collection, entity_field: str, entity_id: str, today: date, closing_weekday: int
+):
+    latest_closed = await collection.find_one(
+        {entity_field: str(entity_id), "status": {"$in": ["closed", "paid"]}},
+        sort=[("period_end", -1)],
+    )
+    latest_end = None
+    if latest_closed and latest_closed.get("period_end"):
+        try:
+            latest_end = date.fromisoformat(str(latest_closed["period_end"])[:10])
+        except Exception:
+            latest_end = None
+    if latest_end is not None:
+        if latest_end >= today:
+            raise HTTPException(status_code=400, detail="Não há período aberto para fechar nesta data.")
+        period_start = latest_end + timedelta(days=1)
+    else:
+        period_start, _ = cycle_for_date(today, closing_weekday)
+    return period_start, today
+
+
 # CÁLCULO DO CICLO DA LOJA 
 # ========================================================= 
  
@@ -4829,132 +4892,83 @@ async def get_courier_current_billing(
 # PUBLICAÇÃO CICLO DA LOJA 
 # ========================================================= 
  
-def billing_cycle_to_public( 
-    cycle: dict, 
-) -> dict: 
- 
-    closing_weekday = int( 
-        cycle.get( 
-            "closing_weekday", 
-            DEFAULT_BILLING_WEEKDAY, 
-        ) 
-    ) 
- 
-    cycle_id = cycle.get( 
-        "_id" 
-    ) 
- 
-    return { 
-        "id": ( 
-            str(cycle_id) 
-            if cycle_id is not None 
-            else None 
-        ), 
-        "store_id": str( 
-            cycle.get( 
-                "store_id", 
-                "", 
-            ) 
-        ), 
-        "store_name": cycle.get( 
-            "store_name", 
-            "Loja", 
-        ), 
-        "closing_weekday": ( 
-            closing_weekday 
-        ), 
-        "closing_weekday_label": ( 
-            billing_weekday_label( 
-                closing_weekday 
-            ) 
-        ), 
-        "period_start": cycle.get( 
-            "period_start" 
-        ), 
-        "period_end": cycle.get( 
-            "period_end" 
-        ), 
-        "total_deliveries": int( 
-            cycle.get( 
-                "total_deliveries", 
-                0, 
-            ) 
-        ), 
-        "total_gross": round( 
-            float( 
-                cycle.get( 
-                    "total_gross", 
-                    cycle.get("total_fee", 0), 
-                ) 
-                or 0 
-            ), 
-            2, 
-        ), 
-        "total_platform_fee": round( 
-            float( 
-                cycle.get( 
-                    "total_platform_fee", 
-                    0, 
-                ) 
-                or 0 
-            ), 
-            2, 
-        ), 
-        "total_fee": round( 
-            float( 
-                cycle.get( 
-                    "total_fee", 
-                    cycle.get("total_gross", 0), 
-                ) 
-                or 0 
-            ), 
-            2, 
-        ), 
-        "total_amount": round( 
-            float( 
-                cycle.get( 
-                    "total_fee", 
-                    cycle.get("total_gross", 0), 
-                ) 
-                or 0 
-            ), 
-            2, 
-        ), 
-        "value_to_pay": round( 
-            float( 
-                cycle.get( 
-                    "total_fee", 
-                    cycle.get("total_gross", 0), 
-                ) 
-                or 0 
-            ), 
-            2, 
-        ), 
-        "delivery_details": cycle.get( 
-            "delivery_details", 
-            [], 
-        ), 
-        "status": cycle.get( 
-            "status", 
-            "closed", 
-        ), 
-        "closed_at": cycle.get( 
-            "closed_at" 
-        ), 
-        "paid_at": cycle.get( 
-            "paid_at" 
-        ), 
-        "created_at": cycle.get( 
-            "created_at" 
-        ), 
-        "updated_at": cycle.get( 
-            "updated_at" 
-        ), 
-    } 
- 
- 
-# ========================================================= 
-# NOVO: 
+def billing_cycle_to_public(
+    cycle: dict,
+) -> dict:
+
+    closing_weekday = int(
+        cycle.get(
+            "closing_weekday",
+            DEFAULT_BILLING_WEEKDAY,
+        )
+    )
+
+    cycle_id = cycle.get("_id")
+    delivery_details = cycle.get("delivery_details", [])
+
+    stored_gross = cycle.get("total_gross")
+    if stored_gross is None:
+        try:
+            derived_gross = sum(
+                float(item.get("gross_price", 0) or 0)
+                for item in delivery_details
+                if isinstance(item, dict)
+            )
+        except Exception:
+            derived_gross = 0.0
+    else:
+        try:
+            derived_gross = float(stored_gross or 0)
+        except Exception:
+            derived_gross = 0.0
+
+    total_gross = round(derived_gross, 2)
+    total_platform_fee = round(
+        float(cycle.get("total_platform_fee", 0) or 0),
+        2,
+    )
+    if total_platform_fee == 0 and cycle.get("total_deliveries") is not None:
+        total_platform_fee = round(
+            int(cycle.get("total_deliveries", 0) or 0) * PLATFORM_FEE,
+            2,
+        )
+
+    total_billing = total_gross
+    period_start = cycle.get("period_start")
+    period_end = cycle.get("period_end")
+    cycle_label = (
+        f"{period_start} até {period_end}"
+        if period_start and period_end
+        else None
+    )
+
+    return {
+        "id": str(cycle_id) if cycle_id is not None else None,
+        "store_id": str(cycle.get("store_id", "")),
+        "store_name": cycle.get("store_name", "Loja"),
+        "closing_weekday": closing_weekday,
+        "closing_weekday_label": billing_weekday_label(closing_weekday),
+        "period_start": period_start,
+        "period_end": period_end,
+        "start_date": period_start,
+        "end_date": period_end,
+        "cycle_label": cycle_label,
+        "total_deliveries": int(cycle.get("total_deliveries", 0)),
+        "total_gross": total_gross,
+        "total_billing": total_billing,
+        "total_platform_fee": total_platform_fee,
+        "total_fee": total_billing,
+        "total_amount": total_billing,
+        "value_to_pay": total_billing,
+        "delivery_details": delivery_details,
+        "status": cycle.get("status", "closed"),
+        "closed_at": cycle.get("closed_at"),
+        "paid_at": cycle.get("paid_at"),
+        "created_at": cycle.get("created_at"),
+        "updated_at": cycle.get("updated_at"),
+    }
+
+
 # PUBLICAÇÃO CICLO DO ENTREGADOR 
 # ========================================================= 
  
@@ -5123,11 +5137,12 @@ async def admin_billing(
                 DEFAULT_BILLING_WEEKDAY 
             ) 
  
-        period_start, period_end = ( 
-            cycle_for_date( 
-                today, 
-                closing_weekday, 
-            ) 
+        period_start, period_end = await get_current_billing_period(
+            db.store_billing_cycles,
+            "store_id",
+            store_id,
+            today,
+            closing_weekday,
         ) 
  
         totals = await calculate_store_cycle( 
@@ -5292,11 +5307,12 @@ async def admin_billing(
                 DEFAULT_BILLING_WEEKDAY 
             ) 
  
-        period_start, period_end = ( 
-            cycle_for_date( 
-                today, 
-                closing_weekday, 
-            ) 
+        period_start, period_end = await get_current_billing_period(
+            db.courier_billing_cycles,
+            "courier_id",
+            courier_id,
+            today,
+            closing_weekday,
         ) 
  
         courier_totals = ( 
@@ -5921,11 +5937,12 @@ async def close_store_billing(
         BRAZIL_TZ 
     ).date() 
  
-    period_start, period_end = ( 
-        cycle_for_date( 
-            today, 
-            closing_weekday, 
-        ) 
+    period_start, period_end = await get_manual_billing_period(
+        db.store_billing_cycles,
+        "store_id",
+        store_id,
+        today,
+        closing_weekday,
     ) 
  
     existing = ( 
@@ -6141,11 +6158,12 @@ async def close_courier_billing(
         BRAZIL_TZ 
     ).date() 
  
-    period_start, period_end = ( 
-        cycle_for_date( 
-            today, 
-            closing_weekday, 
-        ) 
+    period_start, period_end = await get_manual_billing_period(
+        db.courier_billing_cycles,
+        "courier_id",
+        courier_id,
+        today,
+        closing_weekday,
     ) 
  
     existing = ( 
