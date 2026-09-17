@@ -4800,9 +4800,12 @@ async def get_store_current_billing(
  
     closing_weekday = await get_store_billing_weekday(store_id) 
     today = datetime.now(BRAZIL_TZ).date() 
-    period_start, period_end = cycle_for_date( 
-        today, 
-        closing_weekday, 
+    period_start, period_end = await get_current_billing_period(
+        db.store_billing_cycles,
+        "store_id",
+        store_id,
+        today,
+        closing_weekday,
     ) 
  
     totals = await calculate_store_cycle( 
