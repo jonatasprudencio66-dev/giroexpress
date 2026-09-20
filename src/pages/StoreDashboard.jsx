@@ -40,6 +40,26 @@ function formatCycleDate(value) {
   return `${match[3]}/${match[2]}/${match[1]}`;
 }
 
+function getDeliveryStatusLabel(status) {
+  const normalized = String(status || "pending")
+    .trim()
+    .toLowerCase();
+
+  const labels = {
+    pending: "Aguardando entregador",
+    accepted: "Aceita",
+    picked_up: "Pedido retirado",
+    in_progress: "Em entrega",
+    in_transit: "Em entrega",
+    completed: "Concluída",
+    delivered: "Concluída",
+    cancelled: "Cancelada",
+    canceled: "Cancelada",
+  };
+
+  return labels[normalized] || "Em andamento";
+}
+
 function normalizeAccountData(data) {
   const account =
     data?.account ||
@@ -98,6 +118,32 @@ export default function StoreDashboard() {
   const [activeTab, setActiveTab] =
     useState("deliveries");
 
+  const getCurrentWeekRange = () => {
+    const now = new Date();
+    const start = new Date(now);
+    start.setHours(0, 0, 0, 0);
+    start.setDate(now.getDate() - now.getDay());
+    const end = new Date(start);
+    end.setDate(start.getDate() + 6);
+    end.setHours(23, 59, 59, 999);
+    return { start, end };
+  };
+
+  const toDateInputValue = (date) => {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, "0");
+    const day = String(date.getDate()).padStart(2, "0");
+    return `${year}-${month}-${day}`;
+  };
+
+  const [deliveryPeriodMode, setDeliveryPeriodMode] = useState("week");
+  const [deliveryDateStart, setDeliveryDateStart] = useState(
+    () => toDateInputValue(getCurrentWeekRange().start)
+  );
+  const [deliveryDateEnd, setDeliveryDateEnd] = useState(
+    () => toDateInputValue(getCurrentWeekRange().end)
+  );
+
   const [deliveries, setDeliveries] =
     useState([]);
 
@@ -108,6 +154,12 @@ export default function StoreDashboard() {
     useState(null);
 
   const [billingLoading, setBillingLoading] =
+    useState(false);
+
+  const [billingHistory, setBillingHistory] =
+    useState([]);
+
+  const [showAllBillingCycles, setShowAllBillingCycles] =
     useState(false);
 
   const [loading, setLoading] =
@@ -405,6 +457,22 @@ export default function StoreDashboard() {
             })),
         ]);
 
+        try {
+          const historyResponse =
+            await api.get("/billing/store/cycles");
+
+          setBillingHistory(
+            Array.isArray(historyResponse?.data?.cycles)
+              ? historyResponse.data.cycles
+              : []
+          );
+        } catch (historyError) {
+          console.warn(
+            "[GiroExpress] Não foi possível carregar o histórico de ciclos da loja:",
+            historyError
+          );
+        }
+
         const delData =
           delRes?.data;
 
@@ -536,7 +604,8 @@ export default function StoreDashboard() {
       handleUserInteraction
     );
 
-    return () => {
+  
+  return () => {
       window.removeEventListener(
         "pointerdown",
         handleUserInteraction
@@ -1392,6 +1461,58 @@ export default function StoreDashboard() {
   // TELA
   // ============================================================
 
+  const getDeliveryDate = (delivery) => {
+    const raw =
+      delivery?.completed_at ||
+      delivery?.created_at ||
+      delivery?.updated_at ||
+      delivery?.date;
+    if (!raw) return null;
+    const parsed = new Date(raw);
+    return Number.isNaN(parsed.getTime()) ? null : parsed;
+  };
+
+  const visibleDeliveries = deliveries.filter((delivery) => {
+    const deliveryDate = getDeliveryDate(delivery);
+    if (!deliveryDate) return false;
+
+    let start;
+    let end;
+
+    if (deliveryPeriodMode === "custom") {
+      start = new Date(`${deliveryDateStart}T00:00:00`);
+      end = new Date(`${deliveryDateEnd}T23:59:59`);
+    } else {
+      const week = getCurrentWeekRange();
+      start = week.start;
+      end = week.end;
+    }
+
+    return deliveryDate >= start && deliveryDate <= end;
+  });
+
+  const visibleCompletedDeliveries = visibleDeliveries.filter(
+    (delivery) =>
+      ["completed", "delivered"].includes(
+        String(delivery?.status || "").toLowerCase()
+      )
+  );
+
+  const visibleInProgressDeliveries = visibleDeliveries.filter(
+    (delivery) =>
+      !["completed", "delivered", "cancelled", "canceled"].includes(
+        String(delivery?.status || "").toLowerCase()
+      )
+  );
+
+  const handleShowCurrentWeek = () => {
+    const week = getCurrentWeekRange();
+    setDeliveryDateStart(toDateInputValue(week.start));
+    setDeliveryDateEnd(toDateInputValue(week.end));
+    setDeliveryPeriodMode("week");
+  };
+
+
   return (
     <Layout
       subtitle="Painel da Loja"
@@ -1530,7 +1651,7 @@ export default function StoreDashboard() {
                 </span>
 
                 <p className="text-2xl font-bold text-white mt-2">
-                  {deliveries.length}
+                  {visibleDeliveries.length}
                 </p>
               </div>
 
@@ -1583,6 +1704,60 @@ export default function StoreDashboard() {
 
             </div>
 
+            <div className="mb-6 rounded-2xl border border-slate-800 bg-slate-900 p-5">
+              <div className="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-4">
+                <div>
+                  <h3 className="font-bold text-white">Entregas da semana</h3>
+                  <p className="text-sm text-slate-400 mt-1">
+                    Por padrão, aparecem somente as entregas da semana atual.
+                  </p>
+                </div>
+                <div className="flex flex-col sm:flex-row sm:items-end gap-3">
+                  <label className="text-xs text-slate-400">
+                    Data inicial
+                    <input
+                      type="date"
+                      value={deliveryDateStart}
+                      onChange={(event) => {
+                        setDeliveryDateStart(event.target.value);
+                        setDeliveryPeriodMode("custom");
+                      }}
+                      className="mt-1 block rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white"
+                    />
+                  </label>
+                  <label className="text-xs text-slate-400">
+                    Data final
+                    <input
+                      type="date"
+                      value={deliveryDateEnd}
+                      onChange={(event) => {
+                        setDeliveryDateEnd(event.target.value);
+                        setDeliveryPeriodMode("custom");
+                      }}
+                      className="mt-1 block rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white"
+                    />
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => setDeliveryPeriodMode("custom")}
+                    className="rounded-lg bg-orange-500 px-4 py-2 text-sm font-bold text-white hover:bg-orange-400"
+                  >
+                    Consultar
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleShowCurrentWeek}
+                    className="rounded-lg border border-slate-700 px-4 py-2 text-sm font-bold text-white hover:bg-slate-800"
+                  >
+                    Semana atual
+                  </button>
+                </div>
+              </div>
+              <div className="mt-4 text-xs text-slate-500">
+                Exibindo {visibleDeliveries.length} entrega(s) no período selecionado.
+              </div>
+            </div>
+
             <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6">
 
               <h2 className="text-lg font-bold text-white mb-4">
@@ -1603,7 +1778,7 @@ export default function StoreDashboard() {
               ) : (
                 <div className="space-y-4">
 
-                  {deliveries.map(
+                  {visibleDeliveries.map(
                     (delivery) => {
                       const deliveryId =
                         delivery.id ||
@@ -1637,10 +1812,9 @@ export default function StoreDashboard() {
                           : "—";
 
                       const status =
-                        String(
-                          delivery.status ||
-                            "pendente"
-                        ).toUpperCase();
+                        getDeliveryStatusLabel(
+                          delivery.status
+                        );
 
                       const deliveryPrice =
                         Number(
@@ -1944,6 +2118,78 @@ export default function StoreDashboard() {
                   </div>
 
                 </div>
+
+                {(() => {
+                  const paidCycles = billingHistory.filter(
+                    (cycle) => String(cycle?.status || "").toLowerCase() === "paid"
+                  );
+                  const lastPaid = paidCycles[0];
+
+                  return (
+                    <div className="bg-slate-900 border border-emerald-500/20 rounded-2xl p-6">
+                      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <CheckCircle2 className="w-5 h-5 text-emerald-400" />
+                            <h3 className="font-bold text-lg text-white">Último pagamento</h3>
+                          </div>
+                          {lastPaid ? (
+                            <div className="mt-3">
+                              <p className="text-sm text-slate-300">
+                                {formatCycleDate(lastPaid.period_start)} a {formatCycleDate(lastPaid.period_end)}
+                              </p>
+                              <p className="text-2xl font-black text-emerald-400 mt-1">
+                                R$ {Number(lastPaid.total_billing ?? lastPaid.total_amount ?? lastPaid.total_gross ?? 0).toFixed(2).replace(".", ",")}
+                              </p>
+                              <p className="text-xs text-slate-500 mt-1">
+                                {Number(lastPaid.total_deliveries || 0)} corridas • Pago
+                              </p>
+                            </div>
+                          ) : (
+                            <p className="text-sm text-slate-400 mt-3">Nenhum pagamento confirmado ainda.</p>
+                          )}
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setShowAllBillingCycles((value) => !value)}
+                          className="px-4 py-2 rounded-xl border border-slate-700 text-sm font-bold text-white hover:bg-slate-800"
+                        >
+                          {showAllBillingCycles ? "Ocultar ciclos" : "Ver todos os ciclos"}
+                        </button>
+                      </div>
+
+                      {showAllBillingCycles && (
+                        <div className="mt-5 border-t border-slate-800 pt-4 space-y-3">
+                          {billingHistory.length === 0 ? (
+                            <p className="text-sm text-slate-400">Nenhum ciclo fechado até o momento.</p>
+                          ) : billingHistory.map((cycle) => (
+                            <div
+                              key={cycle.id || `${cycle.period_start}-${cycle.period_end}`}
+                              className="rounded-xl border border-slate-800 bg-slate-950/40 p-4 flex flex-col md:flex-row md:items-center md:justify-between gap-3"
+                            >
+                              <div>
+                                <p className="font-bold text-white">
+                                  {formatCycleDate(cycle.period_start)} a {formatCycleDate(cycle.period_end)}
+                                </p>
+                                <p className="text-xs text-slate-500 mt-1">
+                                  {Number(cycle.total_deliveries || 0)} corridas
+                                </p>
+                              </div>
+                              <div className="md:text-right">
+                                <p className="font-black text-emerald-400">
+                                  R$ {Number(cycle.total_billing ?? cycle.total_amount ?? cycle.total_gross ?? 0).toFixed(2).replace(".", ",")}
+                                </p>
+                                <p className="text-xs text-slate-400 mt-1">
+                                  {String(cycle.status || "").toLowerCase() === "paid" ? "Pago" : "Fechado"}
+                                </p>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
 
                 <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6">
 

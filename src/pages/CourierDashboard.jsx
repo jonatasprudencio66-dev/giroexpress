@@ -300,6 +300,15 @@ export default function CourierDashboard() {
   const [billingCycle, setBillingCycle] =
     useState(null);
 
+  const [confirmedPayments, setConfirmedPayments] =
+    useState([]);
+
+  const [billingHistory, setBillingHistory] =
+    useState([]);
+
+  const [showAllBillingCycles, setShowAllBillingCycles] =
+    useState(false);
+
   const [loading, setLoading] =
     useState(true);
 
@@ -1396,6 +1405,49 @@ export default function CourierDashboard() {
           console.warn(
             "[GiroExpress] Não foi possível carregar o ciclo financeiro:",
             billingError
+          );
+        }
+
+        try {
+          const paymentsResponse =
+            await api.get(
+              "/billing/courier/payments"
+            );
+
+          if (
+            mountedRef.current &&
+            paymentsResponse?.data?.ok
+          ) {
+            setConfirmedPayments(
+              Array.isArray(
+                paymentsResponse.data.payments
+              )
+                ? paymentsResponse.data.payments
+                : []
+            );
+          }
+        } catch (paymentsError) {
+          console.warn(
+            "[GiroExpress] Não foi possível carregar os pagamentos confirmados:",
+            paymentsError
+          );
+        }
+
+        try {
+          const cyclesResponse =
+            await api.get("/billing/courier/cycles");
+
+          if (mountedRef.current) {
+            setBillingHistory(
+              Array.isArray(cyclesResponse?.data?.cycles)
+                ? cyclesResponse.data.cycles
+                : []
+            );
+          }
+        } catch (cyclesError) {
+          console.warn(
+            "[GiroExpress] Não foi possível carregar os ciclos do entregador:",
+            cyclesError
           );
         }
 
@@ -2504,111 +2556,6 @@ export default function CourierDashboard() {
             </Section>
           </div>
 
-          <div className="mb-6">
-            <Section
-              title="Histórico de Corridas"
-              empty="Sem histórico ainda."
-              data={history}
-            >
-              {(d) => (
-                <DeliveryCard
-                  key={
-                    d.id ||
-                    d._id
-                  }
-                  d={d}
-                  me={user}
-                  online={online}
-                  unreadCount={
-                    unreadMessages[
-                      String(
-                        d.id ||
-                          d._id
-                      )
-                    ] || 0
-                  }
-                  onChat={() =>
-                    openChat(d)
-                  }
-                  onTicket={() => {
-                    setTicketForId(
-                      d.id ||
-                        d._id
-                    );
-
-                    setShowTicket(
-                      true
-                    );
-                  }}
-                />
-              )}
-            </Section>
-          </div>
-
-          <div
-            className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6"
-            data-testid="courier-dashboard"
-          >
-            <StatCard
-              icon={
-                <DollarSign className="w-5 h-5" />
-              }
-              label="Ganhos Líquidos Hoje"
-              value={formatBRL(
-                netToday
-              )}
-              sub="Valor líquido das corridas de hoje"
-              testid="courier-earnings"
-            />
-
-            <StatCard
-              icon={
-                <Package className="w-5 h-5" />
-              }
-              label="Corridas Ativas"
-              value={`${activeCount}/${MAX_ACTIVE_DELIVERIES}`}
-              sub={
-                remainingSlots >
-                0
-                  ? `${remainingSlots} vaga${
-                      remainingSlots >
-                      1
-                        ? "s"
-                        : ""
-                    } disponível${
-                      remainingSlots >
-                      1
-                        ? "eis"
-                        : ""
-                    }`
-                  : "Limite atingido — conclua um pedido"
-              }
-            />
-
-            <StatCard
-              icon={
-                <Bike className="w-5 h-5" />
-              }
-              label="Veículo"
-              value={
-                user?.vehicle ||
-                "—"
-              }
-              sub="Cadastrado"
-            />
-
-            <StatCard
-              icon={
-                <MapPin className="w-5 h-5" />
-              }
-              label="Disponíveis na Região"
-              value={
-                available.length
-              }
-              sub="Prontas para aceitar"
-            />
-          </div>
-
           <div
             className="mb-6 bg-slate-900 border border-orange-500/20 rounded-2xl p-6"
             data-testid="courier-billing-cycle"
@@ -2619,7 +2566,7 @@ export default function CourierDashboard() {
                   <DollarSign className="w-5 h-5 text-orange-400" />
 
                   <h2 className="text-lg font-black text-white">
-                    Ciclo financeiro atual
+                    Pagamento do ciclo atual
                   </h2>
                 </div>
 
@@ -2685,97 +2632,92 @@ export default function CourierDashboard() {
               />
             </div>
 
-            <div className="border border-slate-800 rounded-2xl overflow-hidden">
-              <div className="px-4 py-4 border-b border-slate-800">
-                <h3 className="font-bold text-white">
-                  Corridas do ciclo
-                </h3>
-
-                <p className="text-xs text-slate-500 mt-1">
-                  Data, corrida, loja e valor bruto.
-                </p>
-              </div>
-
-              {(
-                billingCycle?.delivery_details ||
-                []
-              ).length === 0 ? (
-                <p className="text-sm text-slate-400 py-8 text-center">
-                  Nenhuma corrida concluída neste ciclo.
-                </p>
-              ) : (
-                <div className="overflow-x-auto">
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="border-b border-slate-800 text-slate-500 text-left">
-                        <th className="py-3 px-4">
-                          Data
-                        </th>
-
-                        <th className="py-3 px-4">
-                          Corrida
-                        </th>
-
-                        <th className="py-3 px-4">
-                          Loja
-                        </th>
-
-                        <th className="py-3 px-4 text-right">
-                          Valor
-                        </th>
-                      </tr>
-                    </thead>
-
-                    <tbody>
-                      {(
-                        billingCycle?.delivery_details ||
-                        []
-                      ).map(
-                        (item) => (
-                          <tr
-                            key={
-                              item.id ||
-                              item.code
-                            }
-                            className="border-b border-slate-900 last:border-0"
-                          >
-                            <td className="py-3 px-4 text-slate-300 whitespace-nowrap">
-                              {formatCycleDate(
-                                item.completed_at ||
-                                  item.date ||
-                                  item.created_at
-                              )}
-                            </td>
-
-                            <td className="py-3 px-4 text-white font-bold">
-                              {item.code ||
-                                "—"}
-                            </td>
-
-                            <td className="py-3 px-4 text-slate-300">
-                              {item.store_name ||
-                                "Loja"}
-                            </td>
-
-                            <td className="py-3 px-4 text-right text-emerald-400 font-bold whitespace-nowrap">
-                              {formatBRL(
-                                Number(
-                                  item.gross_price ||
-                                    0
-                                )
-                              )}
-                            </td>
-                          </tr>
-                        )
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-              )}
+            <div className="rounded-2xl border border-emerald-500/20 bg-emerald-500/5 p-4">
+              <p className="text-xs font-bold uppercase tracking-wide text-emerald-300">
+                Valor deste ciclo
+              </p>
+              <p className="mt-2 text-3xl font-black text-emerald-400">
+                {formatBRL(
+                  Number(
+                    billingCycle?.total_to_pay ??
+                      billingCycle?.total_courier ??
+                      0
+                  )
+                )}
+              </p>
+              <p className="mt-1 text-xs text-slate-400">
+                Este é o valor líquido que você tem para receber neste ciclo.
+              </p>
             </div>
           </div>
 
           <div
+            className="mb-6 bg-slate-900 border border-emerald-500/20 rounded-2xl p-6"
+            data-testid="courier-confirmed-payments"
+          >
+            <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+              <div>
+                <div className="flex items-center gap-2">
+                  <Check className="w-5 h-5 text-emerald-400" />
+                  <h2 className="text-lg font-black text-white">Último pagamento</h2>
+                </div>
+                {confirmedPayments.length > 0 ? (
+                  <div className="mt-3">
+                    <p className="text-sm text-slate-300">
+                      {formatCycleDate(confirmedPayments[0]?.period_start)} a {formatCycleDate(confirmedPayments[0]?.period_end)}
+                    </p>
+                    <p className="text-2xl font-black text-emerald-400 mt-1">
+                      {formatBRL(Number(confirmedPayments[0]?.total_to_pay ?? confirmedPayments[0]?.total_courier ?? 0))}
+                    </p>
+                    <p className="text-xs text-slate-500 mt-1">
+                      {Number(confirmedPayments[0]?.total_deliveries || 0)} corridas • Pago
+                    </p>
+                  </div>
+                ) : (
+                  <p className="text-sm text-slate-400 mt-3">Nenhum pagamento confirmado ainda.</p>
+                )}
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowAllBillingCycles((value) => !value)}
+                className="px-4 py-2 rounded-xl border border-slate-700 text-sm font-bold text-white hover:bg-slate-800"
+              >
+                {showAllBillingCycles ? "Ocultar ciclos" : "Ver todos os ciclos"}
+              </button>
+            </div>
+
+            {showAllBillingCycles && (
+              <div className="mt-5 border-t border-slate-800 pt-4 space-y-3">
+                {billingHistory.length === 0 ? (
+                  <p className="text-sm text-slate-400">Nenhum ciclo fechado até o momento.</p>
+                ) : billingHistory.map((cycle) => (
+                  <div
+                    key={cycle.id || `${cycle.period_start}-${cycle.period_end}`}
+                    className="rounded-xl border border-slate-800 bg-slate-950/40 p-4 flex flex-col md:flex-row md:items-center md:justify-between gap-3"
+                  >
+                    <div>
+                      <p className="font-bold text-white">
+                        {formatCycleDate(cycle.period_start)} a {formatCycleDate(cycle.period_end)}
+                      </p>
+                      <p className="text-xs text-slate-500 mt-1">
+                        {Number(cycle.total_deliveries || 0)} corridas • Bruto {formatBRL(Number(cycle.total_gross || 0))}
+                      </p>
+                    </div>
+                    <div className="md:text-right">
+                      <p className="font-black text-emerald-400">
+                        {formatBRL(Number(cycle.total_to_pay ?? cycle.total_courier ?? 0))}
+                      </p>
+                      <p className="text-xs text-slate-400 mt-1">
+                        {String(cycle.status || "").toLowerCase() === "paid" ? "Pago" : "Fechado"}
+                      </p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+                    <div
             className={`mb-6 rounded-2xl border p-4 ${
               hasAvailableSlots
                 ? "border-orange-500/30 bg-orange-500/10"

@@ -2127,7 +2127,10 @@ async def list_deliveries(
         and normalized_status != "available" 
     ): 
  
-        q["status"] = normalized_status 
+        q["status"] = {
+            "$regex": f"^{re.escape(normalized_status)}$",
+            "$options": "i",
+        } 
  
     docs = ( 
         await db.deliveries 
@@ -4410,54 +4413,216 @@ async def get_store_billing_weekday(
  
 # ========================================================= 
 async def get_current_billing_period(
-    collection, entity_field: str, entity_id: str, today: date, closing_weekday: int
+    collection,
+    entity_field: str,
+    entity_id: str,
+    today: date,
+    closing_weekday: int,
 ):
-    latest_closed = await collection.find_one(
-        {entity_field: str(entity_id), "status": {"$in": ["closed", "paid"]}},
-        sort=[("period_end", -1)],
+    """
+    Retorna somente o ciclo realmente aberto.
+
+    Registros antigos inconsistentes com period_end no futuro são ignorados
+    para decidir onde começa o ciclo atual.
+
+    Se houve fechamento hoje, o novo ciclo começa amanhã. Assim as corridas
+    já fechadas ficam exclusivamente no histórico e o cartão atual aparece
+    com 0 entregas e R$ 0,00.
+    """
+
+    calendar_start, calendar_end = cycle_for_date(
+        today,
+        closing_weekday,
     )
-    latest_end = None
-    if latest_closed and latest_closed.get("period_end"):
+
+    # Busca os fechamentos da entidade e escolhe o último que realmente
+    # terminou hoje ou antes de hoje. Ciclos futuros inválidos não podem
+    # contaminar o ciclo atual.
+    closed_docs = (
+        await collection.find(
+            {
+                entity_field: str(entity_id),
+                "status": {"$in": ["closed", "paid"]},
+            }
+        )
+        .sort("period_end", -1)
+        .to_list(1000)
+    )
+
+    latest_valid_end = None
+
+    for cycle in closed_docs:
+        raw_end = cycle.get("period_end")
+        if not raw_end:
+            continue
+
         try:
-            latest_end = date.fromisoformat(str(latest_closed["period_end"])[:10])
+            cycle_end = date.fromisoformat(
+                str(raw_end)[:10]
+            )
         except Exception:
-            latest_end = None
-    if latest_end is not None:
-        period_start = latest_end + timedelta(days=1)
-        _, period_end = cycle_for_date(period_start, closing_weekday)
-        return period_start, period_end
-    return cycle_for_date(today, closing_weekday)
+            continue
+
+        # Ciclos antigos podem ter sido fechados manualmente antes do
+        # period_end gravado (ex.: período 14/09–20/09 fechado no dia 17).
+        # Para descobrir onde começa o NOVO ciclo, a data real do
+        # fechamento tem prioridade quando ela for anterior ao period_end.
+        closed_at = parse_iso_datetime(
+            cycle.get("closed_at")
+        )
+
+        effective_end = cycle_end
+
+        if closed_at is not None:
+            closed_date = closed_at.date()
+
+            if closed_date <= today and closed_date < effective_end:
+                effective_end = closed_date
+
+        if effective_end <= today:
+            latest_valid_end = effective_end
+            break
+
+    # Nunca houve fechamento válido: usa o ciclo calendário normal.
+    if latest_valid_end is None:
+        return calendar_start, calendar_end
+
+    next_open_day = latest_valid_end + timedelta(days=1)
+
+    # Fechou hoje: o novo ciclo começa HOJE.
+    # O horário de closed_at separa o ciclo fechado do novo.
+    if latest_valid_end == today:
+        _, current_period_end = cycle_for_date(
+            today,
+            closing_weekday,
+        )
+        return today, current_period_end
+
+    # Houve fechamento anterior dentro do ciclo atual.
+    if calendar_start <= next_open_day <= today:
+        return next_open_day, calendar_end
+
+    return calendar_start, calendar_end
+
+
+
+async def get_latest_same_day_close_datetime(
+    collection,
+    entity_field: str,
+    entity_id: str,
+    target_date: date,
+):
+    """Retorna o último horário de fechamento realizado no dia."""
+    cycles = (
+        await collection.find(
+            {
+                entity_field: str(entity_id),
+                "status": {"$in": ["closed", "paid"]},
+            }
+        )
+        .sort("closed_at", -1)
+        .to_list(1000)
+    )
+
+    latest = None
+
+    for cycle in cycles:
+        closed_at = parse_iso_datetime(cycle.get("closed_at"))
+        if not closed_at or closed_at.date() != target_date:
+            continue
+
+        if latest is None or closed_at > latest:
+            latest = closed_at
+
+    return latest
 
 
 async def get_manual_billing_period(
-    collection, entity_field: str, entity_id: str, today: date, closing_weekday: int
+    collection,
+    entity_field: str,
+    entity_id: str,
+    today: date,
+    closing_weekday: int,
 ):
-    latest_closed = await collection.find_one(
-        {entity_field: str(entity_id), "status": {"$in": ["closed", "paid"]}},
-        sort=[("period_end", -1)],
+    """
+    Período usado pelo botão "Fechar ciclo agora".
+
+    O Admin pode fechar em qualquer dia.
+    Ciclos antigos que terminam depois de hoje não podem impedir o
+    fechamento manual; eles são registros futuros inconsistentes e não
+    definem o início do período que será fechado agora.
+    """
+
+    # Procuramos o último ciclo que realmente terminou antes de hoje.
+    # Um ciclo com period_end futuro não pode ser usado como referência
+    # para bloquear um fechamento feito hoje.
+    closed_docs = (
+        await collection.find(
+            {
+                entity_field: str(entity_id),
+                "status": {"$in": ["closed", "paid"]},
+            }
+        )
+        .sort("period_end", -1)
+        .to_list(1000)
     )
+
+    latest_valid = None
     latest_end = None
-    if latest_closed and latest_closed.get("period_end"):
+
+    for cycle in closed_docs:
+        raw_end = cycle.get("period_end")
+        if not raw_end:
+            continue
+
         try:
-            latest_end = date.fromisoformat(str(latest_closed["period_end"])[:10])
+            cycle_end = date.fromisoformat(
+                str(raw_end)[:10]
+            )
         except Exception:
-            latest_end = None
+            continue
+
+        if cycle_end <= today:
+            latest_valid = cycle
+            latest_end = cycle_end
+            break
+
+    # Se já houve fechamento hoje, novas corridas podem ter sido
+    # concluídas depois dele. O próximo fechamento representa somente
+    # a parte nova do próprio dia.
+    if latest_valid is not None and latest_end == today:
+        return today, today
+
+    # Se existe um fechamento válido anterior, o novo ciclo começa
+    # obrigatoriamente no dia seguinte. Assim nenhuma corrida já
+    # fechada entra novamente.
     if latest_end is not None:
-        if latest_end >= today:
-            raise HTTPException(status_code=400, detail="Não há período aberto para fechar nesta data.")
         period_start = latest_end + timedelta(days=1)
-    else:
-        period_start, _ = cycle_for_date(today, closing_weekday)
+
+        if period_start > today:
+            period_start = today
+
+        return period_start, today
+
+    # Nunca houve um fechamento válido até hoje.
+    # Fecha somente a parte do ciclo calendário que já aconteceu,
+    # terminando sempre hoje.
+    period_start, _ = cycle_for_date(
+        today,
+        closing_weekday,
+    )
+
     return period_start, today
 
 
 # CÁLCULO DO CICLO DA LOJA 
 # ========================================================= 
  
-async def calculate_store_cycle( 
-    store_id: str, 
-    period_start: date, 
-    period_end: date, 
+async def calculate_store_cycle(
+    store_id: str,
+    period_start: date,
+    period_end: date,
+    start_after: datetime | None = None,
 ) -> dict: 
     """Calcula o ciclo real da loja. 
  
@@ -4465,17 +4630,21 @@ async def calculate_store_cycle(
     antigos sem completed_at, usamos created_at como fallback. 
     """ 
  
+    store_id_values = [str(store_id)] 
+    try: 
+        store_id_values.append(ObjectId(str(store_id))) 
+    except Exception: 
+        pass 
+
     deliveries = ( 
         await db.deliveries.find( 
             { 
-                "store_id": str(store_id), 
+                "store_id": { 
+                    "$in": store_id_values 
+                }, 
                 "status": { 
-                    "$in": [ 
-                        "completed", 
-                        "delivered", 
-                        "COMPLETED", 
-                        "DELIVERED", 
-                    ] 
+                    "$regex": "^(completed|delivered)$", 
+                    "$options": "i", 
                 }, 
             } 
         ).sort("completed_at", 1).to_list(None) 
@@ -4500,6 +4669,9 @@ async def calculate_store_cycle(
         delivery_date = billing_datetime.date() 
  
         if not (period_start <= delivery_date <= period_end): 
+            continue
+
+        if start_after is not None and billing_datetime <= start_after:
             continue 
  
         try: 
@@ -4572,10 +4744,11 @@ def courier_id_query_values(courier_id: str) -> list:
     return values 
  
  
-async def calculate_courier_cycle( 
-    courier_id: str, 
-    period_start: date, 
-    period_end: date, 
+async def calculate_courier_cycle(
+    courier_id: str,
+    period_start: date,
+    period_end: date,
+    start_after: datetime | None = None,
 ) -> dict: 
  
     deliveries = ( 
@@ -4630,6 +4803,9 @@ async def calculate_courier_cycle(
             <= delivery_date 
             <= period_end 
         ): 
+            continue
+
+        if start_after is not None and completed_at <= start_after:
             continue 
  
         try: 
@@ -4808,10 +4984,18 @@ async def get_store_current_billing(
         closing_weekday,
     ) 
  
-    totals = await calculate_store_cycle( 
-        store_id, 
-        period_start, 
-        period_end, 
+    same_day_close = await get_latest_same_day_close_datetime(
+        db.store_billing_cycles,
+        "store_id",
+        store_id,
+        today,
+    )
+
+    totals = await calculate_store_cycle(
+        store_id,
+        period_start,
+        period_end,
+        start_after=same_day_close,
     ) 
  
     # Importante: a loja recebe apenas o valor final a pagar. 
@@ -4863,16 +5047,27 @@ async def get_courier_current_billing(
     if closing_weekday < 0 or closing_weekday > 6: 
         closing_weekday = DEFAULT_BILLING_WEEKDAY 
  
-    today = datetime.now(BRAZIL_TZ).date() 
-    period_start, period_end = cycle_for_date( 
-        today, 
-        closing_weekday, 
-    ) 
- 
-    totals = await calculate_courier_cycle( 
-        courier_id, 
-        period_start, 
-        period_end, 
+    today = datetime.now(BRAZIL_TZ).date()
+    period_start, period_end = await get_current_billing_period(
+        db.courier_billing_cycles,
+        "courier_id",
+        courier_id,
+        today,
+        closing_weekday,
+    )
+
+    same_day_close = await get_latest_same_day_close_datetime(
+        db.courier_billing_cycles,
+        "courier_id",
+        courier_id,
+        today,
+    )
+
+    totals = await calculate_courier_cycle(
+        courier_id,
+        period_start,
+        period_end,
+        start_after=same_day_close,
     ) 
  
     return { 
@@ -5080,6 +5275,72 @@ def courier_billing_cycle_to_public(
     } 
  
  
+# =========================================================
+# HISTÓRICO COMPLETO DE CICLOS - LOJA / ENTREGADOR
+# =========================================================
+
+@app.get("/billing/store/cycles")
+@app.get("/api/billing/store/cycles")
+async def get_store_billing_cycles(user: dict = Depends(require_roles("store"))):
+    store_id = str(user.get("_id", user.get("id", "")))
+    cycles = await db.store_billing_cycles.find(
+        {"store_id": store_id}
+    ).sort("period_end", -1).to_list(length=500)
+    return {
+        "ok": True,
+        "cycles": [billing_cycle_to_public(cycle) for cycle in cycles],
+    }
+
+
+@app.get("/billing/courier/cycles")
+@app.get("/api/billing/courier/cycles")
+async def get_courier_billing_cycles(user: dict = Depends(require_roles("courier"))):
+    courier_id = str(user.get("_id", user.get("id", "")))
+    cycles = await db.courier_billing_cycles.find(
+        {"courier_id": courier_id}
+    ).sort("period_end", -1).to_list(length=500)
+    return {
+        "ok": True,
+        "cycles": [courier_billing_cycle_to_public(cycle) for cycle in cycles],
+    }
+
+
+# =========================================================
+# HISTÓRICO DE PAGAMENTOS CONFIRMADOS - ENTREGADOR
+# =========================================================
+
+@app.get("/billing/courier/payments")
+@app.get("/api/billing/courier/payments")
+async def get_courier_confirmed_payments(
+    user: dict = Depends(
+        require_roles("courier")
+    ),
+):
+    courier_id = str(
+        user.get("_id", user.get("id", ""))
+    )
+
+    cycles = (
+        await db.courier_billing_cycles
+        .find(
+            {
+                "courier_id": courier_id,
+                "status": "paid",
+            }
+        )
+        .sort("paid_at", -1)
+        .to_list(length=200)
+    )
+
+    return {
+        "ok": True,
+        "payments": [
+            courier_billing_cycle_to_public(cycle)
+            for cycle in cycles
+        ],
+    }
+
+
 # ========================================================= 
 # ADMIN FATURAMENTO 
 # LOJAS + ENTREGADORES 
@@ -5140,119 +5401,84 @@ async def admin_billing(
                 DEFAULT_BILLING_WEEKDAY 
             ) 
  
+        # Se existe um fechamento da loja aguardando pagamento,
+        # ele permanece disponível no histórico para confirmação.
+        pending_store_cycle = await db.store_billing_cycles.find_one(
+            {
+                "store_id": store_id,
+                "status": "closed",
+            },
+            sort=[("closed_at", -1)],
+        )
+
+        # O bloco "período atual" representa sempre o NOVO ciclo aberto.
+        # Se houve fechamento hoje, start_after impede repetir as corridas
+        # que já foram incluídas no fechamento anterior.
         period_start, period_end = await get_current_billing_period(
             db.store_billing_cycles,
             "store_id",
             store_id,
             today,
             closing_weekday,
-        ) 
- 
-        totals = await calculate_store_cycle( 
-            store_id, 
-            period_start, 
-            period_end, 
-        ) 
- 
-        existing_store_cycle = await db.store_billing_cycles.find_one(
+        )
+
+        same_day_close = await get_latest_same_day_close_datetime(
+            db.store_billing_cycles,
+            "store_id",
+            store_id,
+            today,
+        )
+
+        totals = await calculate_store_cycle(
+            store_id,
+            period_start,
+            period_end,
+            start_after=same_day_close,
+        )
+
+        current_cycles.append(
             {
+                "id": None,
                 "store_id": store_id,
+                "store_name": store.get("name", "Loja"),
+                "closing_weekday": closing_weekday,
+                "closing_weekday_label": billing_weekday_label(
+                    closing_weekday
+                ),
                 "period_start": period_start.isoformat(),
                 "period_end": period_end.isoformat(),
+                "cycle_label": (
+                    f"{period_start.strftime('%d/%m/%Y')} até "
+                    f"{period_end.strftime('%d/%m/%Y')}"
+                ),
+                "total_deliveries": totals["total_deliveries"],
+                "total_gross": totals["total_gross"],
+                "total_platform_fee": totals.get(
+                    "total_platform_fee", 0
+                ),
+                "total_fee": totals["total_fee"],
+                "total_amount": totals["total_fee"],
+                "value_to_pay": totals["total_fee"],
+                "delivery_details": totals.get(
+                    "delivery_details", []
+                ),
+                "status": "open",
+                "closed_at": None,
+                "paid_at": None,
+                "created_at": None,
+                "updated_at": None,
+
+                # Informação auxiliar para o frontend/admin.
+                "has_pending_closed_cycle": bool(pending_store_cycle),
+                "pending_cycle_id": (
+                    str(pending_store_cycle["_id"])
+                    if pending_store_cycle
+                    and pending_store_cycle.get("_id") is not None
+                    else None
+                ),
             }
         )
 
-        current_cycles.append( 
-            { 
-                "id": (
-                    str(existing_store_cycle["_id"])
-                    if existing_store_cycle and existing_store_cycle.get("_id") is not None
-                    else None
-                ), 
-                "store_id": store_id, 
-                "store_name": store.get( 
-                    "name", 
-                    "Loja", 
-                ), 
-                "closing_weekday": ( 
-                    closing_weekday 
-                ), 
-                "closing_weekday_label": ( 
-                    billing_weekday_label( 
-                        closing_weekday 
-                    ) 
-                ), 
-                "period_start": ( 
-                    period_start.isoformat() 
-                ), 
-                "period_end": ( 
-                    period_end.isoformat() 
-                ), 
-                "total_deliveries": ( 
-                    totals[ 
-                        "total_deliveries" 
-                    ] 
-                ), 
-                "total_gross": ( 
-                    totals[ 
-                        "total_gross" 
-                    ] 
-                ), 
-                "total_platform_fee": ( 
-                    totals.get( 
-                        "total_platform_fee", 
-                        0, 
-                    ) 
-                ), 
-                "total_fee": ( 
-                    totals[ 
-                        "total_fee" 
-                    ] 
-                ), 
-                "total_amount": ( 
-                    totals[ 
-                        "total_fee" 
-                    ] 
-                ), 
-                "value_to_pay": ( 
-                    totals[ 
-                        "total_fee" 
-                    ] 
-                ), 
-                "delivery_details": ( 
-                    totals.get( 
-                        "delivery_details", 
-                        [], 
-                    ) 
-                ), 
-                "status": (
-                    existing_store_cycle.get("status", "open")
-                    if existing_store_cycle
-                    else "open"
-                ),
-                "closed_at": (
-                    existing_store_cycle.get("closed_at")
-                    if existing_store_cycle
-                    else None
-                ),
-                "paid_at": (
-                    existing_store_cycle.get("paid_at")
-                    if existing_store_cycle
-                    else None
-                ),
-                "created_at": (
-                    existing_store_cycle.get("created_at")
-                    if existing_store_cycle
-                    else None
-                ),
-                "updated_at": (
-                    existing_store_cycle.get("updated_at")
-                    if existing_store_cycle
-                    else None
-                ),
-            } 
-        ) 
- 
         store_public.append( 
             { 
                 "id": store_id, 
@@ -5342,35 +5568,76 @@ async def admin_billing(
                 DEFAULT_BILLING_WEEKDAY 
             ) 
  
-        period_start, period_end = await get_current_billing_period(
-            db.courier_billing_cycles,
-            "courier_id",
-            courier_id,
-            today,
-            closing_weekday,
-        ) 
- 
-        courier_totals = ( 
-            await calculate_courier_cycle( 
-                courier_id, 
-                period_start, 
-                period_end, 
-            ) 
-        ) 
- 
-        # Se o período atual já foi fechado, usamos o ciclo 
-        # salvo no banco para que o Admin veja o ID real, 
-        # o status e possa confirmar o pagamento. 
-        existing_courier_cycle = ( 
-            await db.courier_billing_cycles.find_one( 
-                { 
-                    "courier_id": courier_id, 
-                    "period_start": period_start.isoformat(), 
-                    "period_end": period_end.isoformat(), 
-                } 
-            ) 
-        ) 
- 
+        # Ciclo fechado aguardando pagamento tem prioridade na tela.
+        pending_closed_cycle = await db.courier_billing_cycles.find_one(
+            {"courier_id": courier_id, "status": "closed"},
+            sort=[("closed_at", -1)],
+        )
+
+        if pending_closed_cycle:
+            existing_courier_cycle = pending_closed_cycle
+
+            raw_start = (
+                pending_closed_cycle.get("display_period_start")
+                or pending_closed_cycle.get("period_start")
+            )
+            raw_end = (
+                pending_closed_cycle.get("display_period_end")
+                or pending_closed_cycle.get("period_end")
+            )
+
+            try:
+                period_start = date.fromisoformat(str(raw_start)[:10])
+            except Exception:
+                period_start = today
+            try:
+                period_end = date.fromisoformat(str(raw_end)[:10])
+            except Exception:
+                period_end = today
+
+            courier_totals = {
+                "total_deliveries": int(
+                    pending_closed_cycle.get("total_deliveries", 0) or 0
+                ),
+                "total_gross": round(
+                    float(pending_closed_cycle.get("total_gross", 0) or 0), 2
+                ),
+                "total_platform_fee": round(
+                    float(
+                        pending_closed_cycle.get("total_platform_fee", 0) or 0
+                    ), 2
+                ),
+                "total_courier": round(
+                    float(pending_closed_cycle.get("total_courier", 0) or 0), 2
+                ),
+                "delivery_details": pending_closed_cycle.get(
+                    "delivery_details", []
+                ),
+            }
+        else:
+            period_start, period_end = await get_current_billing_period(
+                db.courier_billing_cycles,
+                "courier_id",
+                courier_id,
+                today,
+                closing_weekday,
+            )
+
+            same_day_close = await get_latest_same_day_close_datetime(
+                db.courier_billing_cycles,
+                "courier_id",
+                courier_id,
+                today,
+            )
+
+            courier_totals = await calculate_courier_cycle(
+                courier_id,
+                period_start,
+                period_end,
+                start_after=same_day_close,
+            )
+            existing_courier_cycle = None
+
         payment_account = ( 
             _public_payment_account( 
                 courier 
@@ -5505,15 +5772,20 @@ async def admin_billing(
             } 
         ) 
  
-    courier_history_docs = ( 
-        await db.courier_billing_cycles 
-        .find({}) 
-        .sort( 
-            "period_end", 
-            -1, 
-        ) 
-        .to_list(2000) 
-    ) 
+    # Histórico dos entregadores: o pagamento confirmado mais recente
+    # deve aparecer primeiro no painel do Admin.
+    courier_history_docs = (
+        await db.courier_billing_cycles
+        .find({})
+        .sort(
+            [
+                ("paid_at", -1),
+                ("updated_at", -1),
+                ("period_end", -1),
+            ]
+        )
+        .to_list(2000)
+    )
  
     courier_history = [ 
         courier_billing_cycle_to_public( 
@@ -5925,208 +6197,149 @@ async def update_courier_billing(
 @app.post( 
     "/api/admin/billing/{store_id}/close" 
 ) 
-async def close_store_billing( 
-    store_id: str, 
-    admin: dict = Depends( 
-        require_roles("admin") 
-    ), 
-): 
- 
-    try: 
- 
-        object_id = ObjectId( 
-            store_id 
-        ) 
- 
-        store_query = { 
-            "_id": object_id, 
-            "role": "store", 
-        } 
- 
-    except Exception: 
- 
-        store_query = { 
-            "id": store_id, 
-            "role": "store", 
-        } 
- 
-    store = await db.users.find_one( 
-        store_query 
-    ) 
- 
-    if not store: 
- 
-        raise HTTPException( 
-            status_code=404, 
-            detail="Loja não encontrada", 
-        ) 
- 
-    closing_weekday = int( 
-        store.get( 
-            "billing_closing_weekday", 
-            DEFAULT_BILLING_WEEKDAY, 
-        ) 
-    ) 
- 
-    today = datetime.now( 
-        BRAZIL_TZ 
-    ).date() 
- 
+async def close_store_billing(
+    store_id: str,
+    admin: dict = Depends(require_roles("admin")),
+):
+    try:
+        store_query = {
+            "_id": ObjectId(store_id),
+            "role": "store",
+        }
+    except Exception:
+        store_query = {
+            "id": store_id,
+            "role": "store",
+        }
+
+    store = await db.users.find_one(store_query)
+
+    if not store:
+        raise HTTPException(
+            status_code=404,
+            detail="Loja não encontrada",
+        )
+
+    closing_weekday = int(
+        store.get(
+            "billing_closing_weekday",
+            DEFAULT_BILLING_WEEKDAY,
+        )
+    )
+    if closing_weekday < 0 or closing_weekday > 6:
+        closing_weekday = DEFAULT_BILLING_WEEKDAY
+
+    today = datetime.now(BRAZIL_TZ).date()
+
+    # Se existe fechamento aguardando pagamento, não criamos outro.
+    # O fechamento já salvo continua no histórico até ser confirmado.
+    pending_closed = await db.store_billing_cycles.find_one(
+        {
+            "store_id": store_id,
+            "status": "closed",
+        },
+        sort=[("closed_at", -1)],
+    )
+
+    if pending_closed:
+        return {
+            "ok": True,
+            "message": "Existe um período fechado aguardando pagamento.",
+            "cycle": billing_cycle_to_public(pending_closed),
+        }
+
     period_start, period_end = await get_manual_billing_period(
         db.store_billing_cycles,
         "store_id",
         store_id,
         today,
         closing_weekday,
-    ) 
- 
-    existing = ( 
-        await db.store_billing_cycles.find_one( 
-            { 
-                "store_id": store_id, 
-                "period_start": ( 
-                    period_start.isoformat() 
-                ), 
-                "period_end": ( 
-                    period_end.isoformat() 
-                ), 
-            } 
-        ) 
-    ) 
- 
-    if existing: 
- 
-        return { 
-            "ok": True, 
-            "message": ( 
-                "Este período já foi fechado." 
-            ), 
-            "cycle": billing_cycle_to_public( 
-                existing 
-            ), 
-        } 
- 
-    totals = await calculate_store_cycle( 
-        store_id, 
-        period_start, 
-        period_end, 
-    ) 
- 
-    now = now_iso() 
- 
-    cycle = { 
-        "store_id": store_id, 
-        "store_name": store.get( 
-            "name", 
-            "Loja", 
-        ), 
-        "closing_weekday": ( 
-            closing_weekday 
-        ), 
-        "period_start": ( 
-            period_start.isoformat() 
-        ), 
-        "period_end": ( 
-            period_end.isoformat() 
-        ), 
-        "total_deliveries": ( 
-            totals[ 
-                "total_deliveries" 
-            ] 
-        ), 
-        "total_gross": ( 
-            totals[ 
-                "total_gross" 
-            ] 
-        ), 
-        "total_platform_fee": ( 
-            totals.get( 
-                "total_platform_fee", 
-                0, 
-            ) 
-        ), 
-        "total_fee": ( 
-            totals[ 
-                "total_fee" 
-            ] 
-        ), 
-        "total_amount": ( 
-            totals[ 
-                "total_fee" 
-            ] 
-        ), 
-        "value_to_pay": ( 
-            totals[ 
-                "total_fee" 
-            ] 
-        ), 
-        "delivery_details": ( 
-            totals.get( 
-                "delivery_details", 
-                [], 
-            ) 
-        ), 
-        "status": "closed", 
-        "closed_at": now, 
-        "paid_at": None, 
-        "created_at": now, 
-        "updated_at": now, 
-    } 
- 
-    try: 
- 
-        result = ( 
-            await db.store_billing_cycles.insert_one( 
-                cycle 
-            ) 
-        ) 
- 
-        cycle["_id"] = result.inserted_id 
- 
-    except DuplicateKeyError: 
- 
-        existing = ( 
-            await db.store_billing_cycles.find_one( 
-                { 
-                    "store_id": store_id, 
-                    "period_start": ( 
-                        period_start.isoformat() 
-                    ), 
-                    "period_end": ( 
-                        period_end.isoformat() 
-                    ), 
-                } 
-            ) 
-        ) 
- 
-        if existing: 
- 
-            return { 
-                "ok": True, 
-                "message": ( 
-                    "Este período já foi fechado." 
-                ), 
-                "cycle": ( 
-                    billing_cycle_to_public( 
-                        existing 
-                    ) 
-                ), 
-            } 
- 
-        raise 
- 
-    return { 
-        "ok": True, 
-        "message": ( 
-            "Fechamento realizado com sucesso." 
-        ), 
-        "cycle": billing_cycle_to_public( 
-            cycle 
-        ), 
-    } 
- 
- 
-# ========================================================= 
+    )
+
+    same_day_close = await get_latest_same_day_close_datetime(
+        db.store_billing_cycles,
+        "store_id",
+        store_id,
+        today,
+    )
+
+    totals = await calculate_store_cycle(
+        store_id,
+        period_start,
+        period_end,
+        start_after=same_day_close,
+    )
+
+    if int(totals.get("total_deliveries", 0) or 0) <= 0:
+        return {
+            "ok": True,
+            "message": "Não há novas corridas concluídas para fechar.",
+            "cycle": None,
+        }
+
+    now = now_iso()
+
+    cycle = {
+        "store_id": store_id,
+        "store_name": store.get("name", "Loja"),
+        "closing_weekday": closing_weekday,
+        "period_start": period_start.isoformat(),
+        "period_end": period_end.isoformat(),
+        "total_deliveries": totals["total_deliveries"],
+        "total_gross": totals["total_gross"],
+        "total_platform_fee": totals.get(
+            "total_platform_fee", 0
+        ),
+        "total_fee": totals["total_fee"],
+        "total_amount": totals["total_fee"],
+        "value_to_pay": totals["total_fee"],
+        "delivery_details": totals.get(
+            "delivery_details", []
+        ),
+        "status": "closed",
+        "closed_at": now,
+        "paid_at": None,
+        "created_at": now,
+        "updated_at": now,
+    }
+
+    try:
+        result = await db.store_billing_cycles.insert_one(cycle)
+        cycle["_id"] = result.inserted_id
+
+    except DuplicateKeyError:
+        existing = await db.store_billing_cycles.find_one(
+            {
+                "store_id": store_id,
+                "period_start": period_start.isoformat(),
+                "period_end": period_end.isoformat(),
+            }
+        )
+
+        if existing and str(existing.get("status", "")).lower() == "closed":
+            return {
+                "ok": True,
+                "message": "Existe um período fechado aguardando pagamento.",
+                "cycle": billing_cycle_to_public(existing),
+            }
+
+        # Mantém o ciclo pago anterior intacto e permite um novo
+        # fechamento no mesmo dia sem apagar o histórico.
+        cycle["display_period_start"] = period_start.isoformat()
+        cycle["display_period_end"] = period_end.isoformat()
+        cycle["period_end"] = now
+
+        result = await db.store_billing_cycles.insert_one(cycle)
+        cycle["_id"] = result.inserted_id
+
+    return {
+        "ok": True,
+        "message": "Fechamento realizado com sucesso.",
+        "cycle": billing_cycle_to_public(cycle),
+    }
+
+
+# =========================================================
 # NOVO: 
 # FECHAR CICLO DO ENTREGADOR 
 # ========================================================= 
@@ -6137,223 +6350,125 @@ async def close_store_billing(
 @app.post( 
     "/api/admin/billing/couriers/{courier_id}/close" 
 ) 
-async def close_courier_billing( 
-    courier_id: str, 
-    admin: dict = Depends( 
-        require_roles("admin") 
-    ), 
-): 
- 
-    try: 
- 
-        object_id = ObjectId( 
-            courier_id 
-        ) 
- 
-        courier_query = { 
-            "_id": object_id, 
-            "role": "courier", 
-        } 
- 
-    except Exception: 
- 
-        courier_query = { 
-            "id": courier_id, 
-            "role": "courier", 
-        } 
- 
-    courier = await db.users.find_one( 
-        courier_query 
-    ) 
- 
-    if not courier: 
- 
-        raise HTTPException( 
-            status_code=404, 
-            detail="Entregador não encontrado", 
-        ) 
- 
-    closing_weekday = int( 
-        courier.get( 
-            "billing_closing_weekday", 
-            DEFAULT_BILLING_WEEKDAY, 
-        ) 
-    ) 
- 
-    if ( 
-        closing_weekday < 0 
-        or closing_weekday > 6 
-    ): 
- 
-        closing_weekday = ( 
-            DEFAULT_BILLING_WEEKDAY 
-        ) 
- 
-    today = datetime.now( 
-        BRAZIL_TZ 
-    ).date() 
- 
+async def close_courier_billing(
+    courier_id: str,
+    admin: dict = Depends(require_roles("admin")),
+):
+    try:
+        courier_query = {"_id": ObjectId(courier_id), "role": "courier"}
+    except Exception:
+        courier_query = {"id": courier_id, "role": "courier"}
+
+    courier = await db.users.find_one(courier_query)
+    if not courier:
+        raise HTTPException(status_code=404, detail="Entregador não encontrado")
+
+    closing_weekday = int(
+        courier.get("billing_closing_weekday", DEFAULT_BILLING_WEEKDAY)
+    )
+    if closing_weekday < 0 or closing_weekday > 6:
+        closing_weekday = DEFAULT_BILLING_WEEKDAY
+
+    today = datetime.now(BRAZIL_TZ).date()
+
+    # Se há um ciclo fechado aguardando pagamento, ele deve permanecer
+    # visível para o Admin até o pagamento ser confirmado.
+    pending_closed = await db.courier_billing_cycles.find_one(
+        {"courier_id": courier_id, "status": "closed"},
+        sort=[("closed_at", -1)],
+    )
+    if pending_closed:
+        return {
+            "ok": True,
+            "message": "Existe um período fechado aguardando pagamento.",
+            "cycle": courier_billing_cycle_to_public(pending_closed),
+        }
+
     period_start, period_end = await get_manual_billing_period(
         db.courier_billing_cycles,
         "courier_id",
         courier_id,
         today,
         closing_weekday,
-    ) 
- 
-    existing = ( 
-        await db.courier_billing_cycles.find_one( 
-            { 
-                "courier_id": courier_id, 
-                "period_start": ( 
-                    period_start.isoformat() 
-                ), 
-                "period_end": ( 
-                    period_end.isoformat() 
-                ), 
-            } 
-        ) 
-    ) 
- 
-    if existing: 
- 
-        return { 
-            "ok": True, 
-            "message": ( 
-                "Este período já foi fechado." 
-            ), 
-            "cycle": ( 
-                courier_billing_cycle_to_public( 
-                    existing 
-                ) 
-            ), 
-        } 
- 
-    totals = await calculate_courier_cycle( 
-        courier_id, 
-        period_start, 
-        period_end, 
-    ) 
- 
-    now = now_iso() 
- 
-    cycle = { 
-        "courier_id": courier_id, 
-        "courier_name": courier.get( 
-            "name", 
-            "Entregador", 
-        ), 
-        "period_start": ( 
-            period_start.isoformat() 
-        ), 
-        "period_end": ( 
-            period_end.isoformat() 
-        ), 
-        "closing_weekday": ( 
-            closing_weekday 
-        ), 
-        "total_deliveries": ( 
-            totals[ 
-                "total_deliveries" 
-            ] 
-        ), 
-        "total_gross": ( 
-            totals[ 
-                "total_gross" 
-            ] 
-        ), 
-        "total_platform_fee": ( 
-            totals[ 
-                "total_platform_fee" 
-            ] 
-        ), 
-        "total_courier": ( 
-            totals[ 
-                "total_courier" 
-            ] 
-        ), 
-        "total_amount": ( 
-            totals[ 
-                "total_courier" 
-            ] 
-        ), 
-        "status": "closed", 
-        "closed_at": now, 
-        "paid_at": None, 
-        "created_at": now, 
-        "updated_at": now, 
- 
-        # Salvamos um retrato das entregas do ciclo. 
-        "delivery_details": ( 
-            totals[ 
-                "delivery_details" 
-            ] 
-        ), 
- 
-        # Conta PIX no momento do fechamento. 
-        "payment_account": ( 
-            _public_payment_account( 
-                courier 
-            ) 
-        ), 
-    } 
- 
-    try: 
- 
-        result = ( 
-            await db.courier_billing_cycles.insert_one( 
-                cycle 
-            ) 
-        ) 
- 
-        cycle["_id"] = result.inserted_id 
- 
-    except DuplicateKeyError: 
- 
-        existing = ( 
-            await db.courier_billing_cycles.find_one( 
-                { 
-                    "courier_id": courier_id, 
-                    "period_start": ( 
-                        period_start.isoformat() 
-                    ), 
-                    "period_end": ( 
-                        period_end.isoformat() 
-                    ), 
-                } 
-            ) 
-        ) 
- 
-        if existing: 
- 
-            return { 
-                "ok": True, 
-                "message": ( 
-                    "Este período já foi fechado." 
-                ), 
-                "cycle": ( 
-                    courier_billing_cycle_to_public( 
-                        existing 
-                    ) 
-                ), 
-            } 
- 
-        raise 
- 
-    return { 
-        "ok": True, 
-        "message": ( 
-            "Fechamento do entregador realizado com sucesso." 
-        ), 
-        "cycle": ( 
-            courier_billing_cycle_to_public( 
-                cycle 
-            ) 
-        ), 
-    } 
- 
- 
-# ========================================================= 
+    )
+
+    # Não repete corridas que já entraram em um fechamento feito hoje.
+    same_day_close = await get_latest_same_day_close_datetime(
+        db.courier_billing_cycles,
+        "courier_id",
+        courier_id,
+        today,
+    )
+
+    totals = await calculate_courier_cycle(
+        courier_id,
+        period_start,
+        period_end,
+        start_after=same_day_close,
+    )
+
+    if int(totals.get("total_deliveries", 0) or 0) <= 0:
+        return {
+            "ok": True,
+            "message": "Não há novas corridas concluídas para fechar.",
+            "cycle": None,
+        }
+
+    now = now_iso()
+    cycle = {
+        "courier_id": courier_id,
+        "courier_name": courier.get("name", "Entregador"),
+        "period_start": period_start.isoformat(),
+        "period_end": period_end.isoformat(),
+        "closing_weekday": closing_weekday,
+        "total_deliveries": totals["total_deliveries"],
+        "total_gross": totals["total_gross"],
+        "total_platform_fee": totals["total_platform_fee"],
+        "total_courier": totals["total_courier"],
+        "total_amount": totals["total_courier"],
+        "status": "closed",
+        "closed_at": now,
+        "paid_at": None,
+        "created_at": now,
+        "updated_at": now,
+        "delivery_details": totals["delivery_details"],
+        "payment_account": _public_payment_account(courier),
+    }
+
+    try:
+        result = await db.courier_billing_cycles.insert_one(cycle)
+        cycle["_id"] = result.inserted_id
+    except DuplicateKeyError:
+        existing = await db.courier_billing_cycles.find_one(
+            {
+                "courier_id": courier_id,
+                "period_start": period_start.isoformat(),
+                "period_end": period_end.isoformat(),
+            }
+        )
+
+        if existing and str(existing.get("status", "")).lower() == "closed":
+            return {
+                "ok": True,
+                "message": "Existe um período fechado aguardando pagamento.",
+                "cycle": courier_billing_cycle_to_public(existing),
+            }
+
+        # Preserva um ciclo antigo já pago sem sobrescrevê-lo.
+        cycle["display_period_start"] = period_start.isoformat()
+        cycle["display_period_end"] = period_end.isoformat()
+        cycle["period_end"] = now
+        result = await db.courier_billing_cycles.insert_one(cycle)
+        cycle["_id"] = result.inserted_id
+
+    return {
+        "ok": True,
+        "message": "Fechamento do entregador realizado com sucesso.",
+        "cycle": courier_billing_cycle_to_public(cycle),
+    }
+
+
+# =========================================================
 # PAGAR CICLO DA LOJA 
 # ========================================================= 
  
