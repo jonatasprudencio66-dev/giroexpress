@@ -146,11 +146,11 @@ const getUserStatusClass = (status) => {
 const formatDateBR = (value) => {
   if (!value) return "-";
 
-  const raw = String(value);
+  const raw = String(value).trim();
+  const match = raw.match(/^(\d{4})-(\d{2})-(\d{2})/);
 
-  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
-    const [year, month, day] = raw.split("-");
-    return `${day}/${month}/${year}`;
+  if (match) {
+    return `${match[3]}/${match[2]}/${match[1]}`;
   }
 
   const date = new Date(value);
@@ -375,6 +375,7 @@ export default function AdminDashboard() {
   const [expandedBillingCycles, setExpandedBillingCycles] = useState({});
   const [showAllConfirmedPayments, setShowAllConfirmedPayments] = useState(false);
   const [showAllConfirmedStorePayments, setShowAllConfirmedStorePayments] = useState(false);
+  const [showGiroCycleHistory, setShowGiroCycleHistory] = useState(false);
 
   const getTodayInputDate = () => {
     const now = new Date();
@@ -1684,44 +1685,152 @@ export default function AdminDashboard() {
     (giroCurrentDeliveries * 1).toFixed(2)
   );
 
-  const giroHistory = Object.values(
-    billing.history.reduce((groups, cycle) => {
-      const label =
-        cycle?.cycle_label ||
-        `${formatDateBR(
-          cycle?.period_start || cycle?.start_date
-        )} até ${formatDateBR(
-          cycle?.period_end || cycle?.end_date
-        )}`;
+  // =========================================================
+  // FATURAMENTO CONSOLIDADO POR CICLO
+  // Loja paga o valor integral das corridas.
+  // GiroExpress fica com R$ 1,00 por entrega concluída.
+  // Entregador recebe o líquido calculado no ciclo dele.
+  // Status "paid" da loja = valor efetivamente recebido.
+  // Status "paid" do entregador = valor efetivamente pago.
+  // =========================================================
+  const getStoreCycleAmount = (cycle) =>
+    Number(
+      cycle?.total_gross ??
+        cycle?.total_billing ??
+        cycle?.total_to_pay ??
+        cycle?.value_to_pay ??
+        cycle?.total_amount ??
+        cycle?.total_fee ??
+        0
+    );
 
-      if (!groups[label]) {
-        groups[label] = {
-          cycle_label: label,
-          deliveries: 0,
-          receivable: 0,
-        };
-      }
+  const getCourierCycleAmount = (cycle) =>
+    Number(
+      cycle?.total_to_pay ??
+        cycle?.total_courier ??
+        cycle?.value_to_pay ??
+        cycle?.total_amount ??
+        cycle?.amount ??
+        0
+    );
 
-      groups[label].deliveries += Number(
-        cycle?.total_deliveries || 0
-      );
+  const getCycleKey = (cycle) => {
+    const start = String(
+      cycle?.display_period_start ||
+        cycle?.period_start ||
+        cycle?.start_date ||
+        ""
+    ).slice(0, 10);
+    const end = String(
+      cycle?.display_period_end ||
+        cycle?.period_end ||
+        cycle?.end_date ||
+        start
+    ).slice(0, 10);
+    return `${start}|${end}`;
+  };
 
-      groups[label].receivable += Number(
-        cycle?.total_fee || 0
-      );
+  const getCycleLabel = (cycle) => {
+    const start =
+      cycle?.display_period_start || cycle?.period_start || cycle?.start_date;
+    const end =
+      cycle?.display_period_end || cycle?.period_end || cycle?.end_date;
 
-      return groups;
-    }, {})
-  )
+    if (start || end) {
+      return `${formatDateBR(start)} até ${formatDateBR(end || start)}`;
+    }
+
+    return String(cycle?.cycle_label || "-").replace(
+      /(\d{4})-(\d{2})-(\d{2})/g,
+      (_, year, month, day) => `${day}/${month}/${year}`
+    );
+  };
+
+  const cycleFinancialMap = {};
+
+  (billing.history || []).forEach((cycle) => {
+    const key = getCycleKey(cycle);
+    if (!cycleFinancialMap[key]) {
+      cycleFinancialMap[key] = {
+        cycle_key: key,
+        cycle_label: getCycleLabel(cycle),
+        deliveries: 0,
+        store_billing: 0,
+        store_received: 0,
+        store_pending: 0,
+        courier_to_pay: 0,
+        courier_paid: 0,
+        courier_pending: 0,
+        revenue: 0,
+      };
+    }
+
+    const amount = getStoreCycleAmount(cycle);
+    const deliveries = Number(cycle?.total_deliveries || 0);
+    const status = String(cycle?.status || "").toLowerCase();
+
+    cycleFinancialMap[key].deliveries += deliveries;
+    cycleFinancialMap[key].store_billing += amount;
+    cycleFinancialMap[key].revenue += Number(
+      cycle?.total_platform_fee ?? deliveries * 1
+    );
+
+    if (status === "paid") {
+      cycleFinancialMap[key].store_received += amount;
+    } else {
+      cycleFinancialMap[key].store_pending += amount;
+    }
+  });
+
+  (billing.courier_history || []).forEach((cycle) => {
+    const key = getCycleKey(cycle);
+    if (!cycleFinancialMap[key]) {
+      cycleFinancialMap[key] = {
+        cycle_key: key,
+        cycle_label: getCycleLabel(cycle),
+        deliveries: 0,
+        store_billing: 0,
+        store_received: 0,
+        store_pending: 0,
+        courier_to_pay: 0,
+        courier_paid: 0,
+        courier_pending: 0,
+        revenue: 0,
+      };
+    }
+
+    const amount = getCourierCycleAmount(cycle);
+    const status = String(cycle?.status || "").toLowerCase();
+    cycleFinancialMap[key].courier_to_pay += amount;
+
+    if (status === "paid") {
+      cycleFinancialMap[key].courier_paid += amount;
+    } else {
+      cycleFinancialMap[key].courier_pending += amount;
+    }
+  });
+
+  const giroHistory = Object.values(cycleFinancialMap)
     .map((item) => ({
       ...item,
-      revenue: Number((item.deliveries * 1).toFixed(2)),
+      store_billing: Number(item.store_billing.toFixed(2)),
+      store_received: Number(item.store_received.toFixed(2)),
+      store_pending: Number(item.store_pending.toFixed(2)),
+      courier_to_pay: Number(item.courier_to_pay.toFixed(2)),
+      courier_paid: Number(item.courier_paid.toFixed(2)),
+      courier_pending: Number(item.courier_pending.toFixed(2)),
+      revenue: Number(item.revenue.toFixed(2)),
     }))
-    .sort((a, b) =>
-      String(b.cycle_label).localeCompare(
-        String(a.cycle_label)
-      )
-    );
+    .sort((a, b) => String(b.cycle_key).localeCompare(String(a.cycle_key)));
+
+  const totalStoreReceived = (billing.history || [])
+    .filter((cycle) => String(cycle?.status || "").toLowerCase() === "paid")
+    .reduce((sum, cycle) => sum + getStoreCycleAmount(cycle), 0);
+
+  const totalCourierPaid = (billing.courier_history || [])
+    .filter((cycle) => String(cycle?.status || "").toLowerCase() === "paid")
+    .reduce((sum, cycle) => sum + getCourierCycleAmount(cycle), 0);
+
 
   if (loading) {
     return (
@@ -2129,7 +2238,7 @@ export default function AdminDashboard() {
                       <CircleDollarSign className="w-6 h-6 text-emerald-400" />
                     </div>
           
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-4">
           
                       <div className="rounded-xl border border-slate-800 bg-slate-950 p-4">
                         <p className="text-sm text-slate-400">
@@ -2158,6 +2267,26 @@ export default function AdminDashboard() {
           
                         <p className="text-xl font-bold text-emerald-400 mt-1">
                           {formatBRL(totalBillingPaid)}
+                        </p>
+                      </div>
+
+                      <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-4">
+                        <p className="text-sm text-slate-400">
+                          Recebido das lojas
+                        </p>
+
+                        <p className="text-xl font-bold text-emerald-400 mt-1">
+                          {formatBRL(totalStoreReceived)}
+                        </p>
+                      </div>
+
+                      <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 p-4">
+                        <p className="text-sm text-slate-400">
+                          Pago aos entregadores
+                        </p>
+
+                        <p className="text-xl font-bold text-amber-400 mt-1">
+                          {formatBRL(totalCourierPaid)}
                         </p>
                       </div>
           
@@ -2267,10 +2396,109 @@ export default function AdminDashboard() {
         )}
 
         {/* =====================================================
-            HISTÓRICO DA RECEITA DO GIROEXPRESS
+            FATURAMENTO GIROEXPRESS POR CICLO — RECOLHÍVEL
+            Só usa ciclos de LOJAS já fechados/pagos do billing.history.
+            Receita do GiroExpress = soma da taxa da plataforma do ciclo.
             ===================================================== */}
-        {periodQueryVisible && (
-          <section className="bg-slate-900 border border-slate-800 rounded-2xl p-6">
+        <section className="bg-slate-900 border border-emerald-500/20 rounded-2xl overflow-hidden">
+          <button
+            type="button"
+            onClick={() => setShowGiroCycleHistory((current) => !current)}
+            className="w-full flex items-center justify-between gap-4 p-6 text-left hover:bg-slate-800/40 transition"
+          >
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-emerald-500/10 flex items-center justify-center">
+                <DollarSign className="w-5 h-5 text-emerald-400" />
+              </div>
+
+              <div>
+                <h2 className="text-lg font-semibold text-white">
+                  Faturamento GiroExpress por ciclo
+                </h2>
+                <p className="text-sm text-slate-400 mt-1">
+                  Cada fechamento das lojas fica salvo por ciclo. Clique para consultar quanto o GiroExpress ganhou em cada período.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-3 shrink-0">
+              <span className="hidden sm:inline text-sm text-emerald-400 font-semibold">
+                {giroHistory.length} {giroHistory.length === 1 ? "ciclo" : "ciclos"}
+              </span>
+              <span className="text-slate-400 text-xl leading-none">
+                {showGiroCycleHistory ? "▲" : "▼"}
+              </span>
+            </div>
+          </button>
+
+          {showGiroCycleHistory && (
+            <div className="border-t border-slate-800 p-6 pt-5">
+              {giroHistory.length === 0 ? (
+                <div className="rounded-xl border border-dashed border-slate-700 p-8 text-center">
+                  <p className="text-slate-400">
+                    Nenhum ciclo de loja fechado ainda. Quando você fechar uma loja, o ganho daquele ciclo aparecerá aqui.
+                  </p>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {giroHistory.map((item, index) => (
+                    <div
+                      key={`giro-cycle-${item.cycle_key}-${index}`}
+                      className="rounded-xl border border-slate-800 bg-slate-950/70 p-4"
+                    >
+                      <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+                        <div>
+                          <p className="text-xs uppercase tracking-wide text-slate-500">
+                            Ciclo semanal
+                          </p>
+                          <p className="text-white font-semibold mt-1">
+                            {item.cycle_label}
+                          </p>
+                          <p className="text-sm text-slate-400 mt-1">
+                            {item.deliveries} {item.deliveries === 1 ? "entrega fechada" : "entregas fechadas"}
+                          </p>
+                        </div>
+
+                        <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/10 px-5 py-3 min-w-[210px]">
+                          <p className="text-xs text-emerald-300">
+                            Ganho GiroExpress no ciclo
+                          </p>
+                          <p className="text-2xl font-bold text-emerald-400 mt-1">
+                            {formatBRL(item.revenue)}
+                          </p>
+                          <p className="text-xs text-slate-500 mt-1">
+                            R$ 1,00 por entrega concluída e fechada
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mt-4">
+                        <div className="rounded-lg border border-slate-800 bg-slate-900 p-3">
+                          <p className="text-xs text-slate-500">Faturado das lojas</p>
+                          <p className="text-sm font-semibold text-blue-400 mt-1">{formatBRL(item.store_billing)}</p>
+                        </div>
+                        <div className="rounded-lg border border-slate-800 bg-slate-900 p-3">
+                          <p className="text-xs text-slate-500">Recebido das lojas</p>
+                          <p className="text-sm font-semibold text-emerald-400 mt-1">{formatBRL(item.store_received)}</p>
+                        </div>
+                        <div className="rounded-lg border border-slate-800 bg-slate-900 p-3">
+                          <p className="text-xs text-slate-500">Pendente das lojas</p>
+                          <p className="text-sm font-semibold text-amber-400 mt-1">{formatBRL(item.store_pending)}</p>
+                        </div>
+                        <div className="rounded-lg border border-slate-800 bg-slate-900 p-3">
+                          <p className="text-xs text-slate-500">Pago aos entregadores</p>
+                          <p className="text-sm font-semibold text-violet-400 mt-1">{formatBRL(item.courier_paid)}</p>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </section>
+
+        <section className="bg-slate-900 border border-slate-800 rounded-2xl p-6">
           
                     <div className="flex items-center gap-3 mb-5">
                       <div className="w-10 h-10 rounded-xl bg-emerald-500/10 flex items-center justify-center">
@@ -2279,11 +2507,11 @@ export default function AdminDashboard() {
           
                       <div>
                         <h2 className="text-lg font-semibold text-white">
-                          Histórico da receita do GiroExpress
+                          Faturamento por ciclo
                         </h2>
           
                         <p className="text-sm text-slate-400 mt-1">
-                          Receita de R$ 1,00 por entrega em cada ciclo já fechado.
+                          Valores cobrados, recebidos, pagos e receita do GiroExpress em cada ciclo fechado.
                         </p>
                       </div>
                     </div>
@@ -2291,7 +2519,7 @@ export default function AdminDashboard() {
                     {giroHistory.length === 0 ? (
                       <div className="rounded-xl border border-dashed border-slate-700 p-8 text-center">
                         <p className="text-slate-400">
-                          Nenhum ciclo fechado para exibir a receita do GiroExpress.
+                          Nenhum ciclo fechado para exibir o faturamento.
                         </p>
                       </div>
                     ) : (
@@ -2306,7 +2534,19 @@ export default function AdminDashboard() {
                                 Corridas
                               </th>
                               <th className="px-4 py-3 text-slate-500 font-medium">
-                                A receber das lojas
+                                Faturado lojas
+                              </th>
+                              <th className="px-4 py-3 text-slate-500 font-medium">
+                                Recebido lojas
+                              </th>
+                              <th className="px-4 py-3 text-slate-500 font-medium">
+                                Pendente lojas
+                              </th>
+                              <th className="px-4 py-3 text-slate-500 font-medium">
+                                A pagar entregadores
+                              </th>
+                              <th className="px-4 py-3 text-slate-500 font-medium">
+                                Pago entregadores
                               </th>
                               <th className="px-4 py-3 text-slate-500 font-medium">
                                 Receita GiroExpress
@@ -2329,7 +2569,23 @@ export default function AdminDashboard() {
                                 </td>
           
                                 <td className="px-4 py-4 text-blue-400 font-semibold">
-                                  {formatBRL(item.receivable)}
+                                  {formatBRL(item.store_billing)}
+                                </td>
+
+                                <td className="px-4 py-4 text-emerald-400 font-semibold">
+                                  {formatBRL(item.store_received)}
+                                </td>
+
+                                <td className="px-4 py-4 text-amber-400 font-semibold">
+                                  {formatBRL(item.store_pending)}
+                                </td>
+
+                                <td className="px-4 py-4 text-amber-300 font-semibold">
+                                  {formatBRL(item.courier_to_pay)}
+                                </td>
+
+                                <td className="px-4 py-4 text-violet-400 font-semibold">
+                                  {formatBRL(item.courier_paid)}
                                 </td>
           
                                 <td className="px-4 py-4 text-emerald-400 font-bold">
@@ -2343,7 +2599,6 @@ export default function AdminDashboard() {
                     )}
           
                   </section>
-        )}
 
         <section className="bg-slate-900 border border-slate-800 rounded-2xl p-6">
 
