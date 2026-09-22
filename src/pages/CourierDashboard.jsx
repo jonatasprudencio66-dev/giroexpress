@@ -268,6 +268,33 @@ function showBrowserNotification(
   }
 }
 
+
+function showBrowserAlert(title, body, tag = "giroexpress-alert") {
+  try {
+    if (!("Notification" in window)) return;
+    if (!window.isSecureContext) return;
+    if (Notification.permission !== "granted") return;
+
+    const notification = new Notification(title, {
+      body,
+      icon: "/favicon.ico",
+      tag: `${tag}-${Date.now()}`,
+      requireInteraction: false,
+    });
+
+    notification.onclick = () => {
+      try { window.focus(); } catch {}
+      notification.close();
+    };
+
+    setTimeout(() => {
+      try { notification.close(); } catch {}
+    }, 8000);
+  } catch (error) {
+    console.warn("[GiroExpress] Erro ao criar alerta do navegador:", error);
+  }
+}
+
 /* ============================================================
  * FORMATAÇÃO
  * ============================================================ */
@@ -974,30 +1001,41 @@ export default function CourierDashboard() {
 
     const unlockAudio =
       async () => {
-        if (unlocked) {
-          return;
+        if (!unlocked) {
+          const success =
+            await unlockNotificationAudio();
+
+          if (success) {
+            unlocked = true;
+            console.log("[GiroExpress] Áudio de notificações liberado.");
+          }
         }
 
-        const success =
-          await unlockNotificationAudio();
+        // O Chrome só permite pedir a permissão de notificação
+        // depois de uma ação real do usuário. Como o botão de sino
+        // já inicia ligado, fazemos o pedido no primeiro clique/toque.
+        if (
+          notifyOnRef.current &&
+          "Notification" in window &&
+          window.isSecureContext &&
+          Notification.permission === "default"
+        ) {
+          try {
+            const permission = await Notification.requestPermission();
+            console.log("[GiroExpress] Permissão de notificação:", permission);
+          } catch (error) {
+            console.warn("[GiroExpress] Não foi possível pedir permissão de notificação:", error);
+          }
+        }
 
-        if (success) {
-          unlocked = true;
-
-          window.removeEventListener(
-            "pointerdown",
-            unlockAudio
-          );
-
-          window.removeEventListener(
-            "keydown",
-            unlockAudio
-          );
-
-          window.removeEventListener(
-            "touchstart",
-            unlockAudio
-          );
+        if (unlocked && (
+          !("Notification" in window) ||
+          !window.isSecureContext ||
+          Notification.permission !== "default"
+        )) {
+          window.removeEventListener("pointerdown", unlockAudio);
+          window.removeEventListener("keydown", unlockAudio);
+          window.removeEventListener("touchstart", unlockAudio);
         }
       };
 
@@ -1507,6 +1545,12 @@ export default function CourierDashboard() {
                     ""
                   )
                   .trim();
+
+              showBrowserAlert(
+                "GiroExpress • Nova corrida",
+                `${orderCode} • ${storeName} • ${formatBRL(d.gross_price)}`,
+                "giroexpress-delivery"
+              );
 
               toast.info(
                 `🚚 Nova corrida! ${orderCode} • ${storeName} • ${formatBRL(

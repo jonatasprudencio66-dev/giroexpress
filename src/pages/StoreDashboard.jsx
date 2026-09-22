@@ -18,6 +18,7 @@ import {
   CreditCard,
   Save,
   CheckCircle2,
+  MapPin,
 } from "lucide-react";
 import {
   api,
@@ -174,6 +175,15 @@ export default function StoreDashboard() {
   const [accountSaved, setAccountSaved] =
     useState(false);
 
+  const [storeAddress, setStoreAddress] =
+    useState("");
+
+  const [storeAddressLoading, setStoreAddressLoading] =
+    useState(false);
+
+  const [storeAddressSaving, setStoreAddressSaving] =
+    useState(false);
+
   const [accountForm, setAccountForm] =
     useState({
       holder_name: "",
@@ -265,6 +275,81 @@ export default function StoreDashboard() {
     deliveriesRef.current =
       deliveries;
   }, [deliveries]);
+
+  // ============================================================
+  // ENDEREÇO DE RETIRADA DA LOJA
+  // ============================================================
+
+  const loadStoreAddress = useCallback(
+    async () => {
+      try {
+        setStoreAddressLoading(true);
+
+        const response =
+          await api.get(
+            "/me/store-profile"
+          );
+
+        setStoreAddress(
+          String(
+            response?.data?.address ||
+              ""
+          )
+        );
+      } catch (error) {
+        console.warn(
+          "[GiroExpress] Não foi possível carregar o endereço da loja:",
+          error
+        );
+      } finally {
+        setStoreAddressLoading(false);
+      }
+    },
+    []
+  );
+
+  const handleSaveStoreAddress =
+    async (event) => {
+      event.preventDefault();
+
+      const address =
+        storeAddress.trim();
+
+      if (!address) {
+        toast.error(
+          "Informe o endereço de retirada da loja."
+        );
+        return;
+      }
+
+      try {
+        setStoreAddressSaving(true);
+
+        await api.put(
+          "/me/store-profile",
+          {
+            address,
+          }
+        );
+
+        setStoreAddress(address);
+
+        toast.success(
+          "Endereço de retirada salvo com sucesso!"
+        );
+      } catch (error) {
+        console.error(
+          "[GiroExpress] Erro ao salvar endereço da loja:",
+          error
+        );
+
+        toast.error(
+          apiError(error)
+        );
+      } finally {
+        setStoreAddressSaving(false);
+      }
+    };
 
   // ============================================================
   // CARREGAR CONTA / PIX
@@ -1171,10 +1256,12 @@ export default function StoreDashboard() {
   useEffect(() => {
     if (currentUser) {
       loadAccount();
+      loadStoreAddress();
     }
   }, [
     currentUser,
     loadAccount,
+    loadStoreAddress,
   ]);
 
   // ============================================================
@@ -1220,13 +1307,22 @@ export default function StoreDashboard() {
         return;
       }
 
+      if (!storeAddress.trim()) {
+        toast.error(
+          "Cadastre primeiro o endereço de retirada da loja em Conta / PIX."
+        );
+        return;
+      }
+
       try {
         await api.post(
           "/deliveries",
           {
             ...deliveryForm,
 
+            // A retirada é sempre o endereço cadastrado da loja.
             pickup_address:
+              storeAddress.trim() ||
               deliveryForm.pickup_address.trim(),
 
             dropoff_address:
@@ -2458,6 +2554,104 @@ export default function StoreDashboard() {
               </div>
 
             </div>
+
+            <form
+              onSubmit={
+                handleSaveStoreAddress
+              }
+              className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-4"
+            >
+              <div className="flex items-start gap-3">
+                <div className="w-11 h-11 rounded-xl bg-rose-500/10 border border-rose-500/20 flex items-center justify-center shrink-0">
+                  <MapPin className="w-6 h-6 text-rose-400" />
+                </div>
+
+                <div>
+                  <h3 className="text-lg font-bold text-white">
+                    Endereço de retirada
+                  </h3>
+
+                  <p className="text-xs text-slate-400 mt-1">
+                    Este é o primeiro endereço mostrado ao entregador. Depois dele aparece o endereço de entrega do cliente.
+                  </p>
+                </div>
+              </div>
+
+              {storeAddressLoading ? (
+                <div className="flex items-center gap-2 text-sm text-slate-400">
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  Carregando endereço...
+                </div>
+              ) : (
+                <>
+                  <div>
+                    <label className="block text-sm text-slate-400 mb-1">
+                      Endereço completo da loja
+                    </label>
+
+                    <input
+                      type="text"
+                      value={
+                        storeAddress
+                      }
+                      onChange={(
+                        event
+                      ) =>
+                        setStoreAddress(
+                          event.target.value
+                        )
+                      }
+                      className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-orange-500"
+                      placeholder="Rua, número, bairro, cidade - UF"
+                    />
+                  </div>
+
+                  <div className="rounded-xl border border-slate-800 bg-slate-950/50 p-4">
+                    <p className="text-xs font-bold uppercase tracking-wide text-slate-500">
+                      Ordem para o entregador
+                    </p>
+
+                    <div className="mt-3 space-y-3">
+                      <div>
+                        <p className="text-xs font-bold text-rose-400">
+                          1º RETIRADA
+                        </p>
+                        <p className="text-sm font-semibold text-white mt-1">
+                          {currentUser?.name || "Loja"}
+                        </p>
+                        <p className="text-sm text-slate-300">
+                          {storeAddress || "Cadastre o endereço da loja"}
+                        </p>
+                      </div>
+
+                      <div>
+                        <p className="text-xs font-bold text-emerald-400">
+                          2º ENTREGA
+                        </p>
+                        <p className="text-sm text-slate-400 mt-1">
+                          Endereço do cliente informado em cada nova entrega.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
+                  <button
+                    type="submit"
+                    disabled={
+                      storeAddressSaving
+                    }
+                    className="inline-flex items-center gap-2 bg-orange-600 hover:bg-orange-500 disabled:opacity-60 text-white px-4 py-3 rounded-xl font-bold transition"
+                  >
+                    {storeAddressSaving ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <Save className="w-4 h-4" />
+                    )}
+                    Salvar endereço de retirada
+                  </button>
+                </>
+              )}
+            </form>
 
             {accountLoading ? (
               <div className="bg-slate-900 border border-slate-800 rounded-2xl p-10 flex justify-center">

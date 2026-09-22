@@ -1581,6 +1581,84 @@ async def me_api(
 # PRICING 
 # ========================================================= 
  
+@api.get("/me/store-profile")
+async def get_store_profile(
+    user: dict = Depends(get_current_user),
+):
+    if str(user.get("role") or "").lower() != "store":
+        raise HTTPException(
+            status_code=403,
+            detail="Apenas lojas podem acessar este perfil.",
+        )
+
+    user_id = user.get("_id", user.get("id"))
+    latest_user = None
+
+    try:
+        latest_user = await db.users.find_one({"_id": ObjectId(str(user_id))})
+    except Exception:
+        latest_user = await db.users.find_one({"id": str(user_id)})
+
+    if not latest_user:
+        latest_user = user
+
+    return {
+        "ok": True,
+        "name": latest_user.get("name") or latest_user.get("store_name") or "",
+        "address": latest_user.get("address") or "",
+    }
+
+
+@api.put("/me/store-profile")
+async def update_store_profile(
+    body: dict,
+    user: dict = Depends(get_current_user),
+):
+    if str(user.get("role") or "").lower() != "store":
+        raise HTTPException(
+            status_code=403,
+            detail="Apenas lojas podem alterar este perfil.",
+        )
+
+    address = str(body.get("address") or "").strip()
+
+    if not address:
+        raise HTTPException(
+            status_code=400,
+            detail="Informe o endereço de retirada da loja.",
+        )
+
+    user_id = user.get("_id", user.get("id"))
+    query = None
+
+    try:
+        query = {"_id": ObjectId(str(user_id))}
+    except Exception:
+        query = {"id": str(user_id)}
+
+    result = await db.users.update_one(
+        query,
+        {
+            "$set": {
+                "address": address,
+                "updated_at": datetime.now(timezone.utc),
+            }
+        },
+    )
+
+    if result.matched_count == 0:
+        raise HTTPException(
+            status_code=404,
+            detail="Loja não encontrada.",
+        )
+
+    return {
+        "ok": True,
+        "address": address,
+        "message": "Endereço de retirada atualizado com sucesso.",
+    }
+
+
 @api.get("/pricing/table") 
 async def pricing_table(): 
  
@@ -2002,7 +2080,18 @@ async def create_delivery(
             "name", 
             "Loja", 
         ), 
-        "pickup_address": body.pickup_address, 
+        # A retirada usa primeiro o endereço cadastrado da própria loja.
+        # O valor do formulário fica apenas como fallback para contas antigas.
+        "pickup_address": (
+            str(user.get("address") or "").strip()
+            or (
+                str(body.pickup_address or "").strip()
+                if str(body.pickup_address or "").strip().lower()
+                not in ("loja", "store")
+                else ""
+            )
+            or "Endereço da loja não informado"
+        ), 
         "dropoff_address": body.dropoff_address, 
         "client_name": body.client_name, 
         "client_phone": body.client_phone, 
