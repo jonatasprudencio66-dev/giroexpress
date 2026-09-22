@@ -3502,14 +3502,78 @@ function DeliveryCard({
   ] ||
     "text-slate-300 bg-slate-800";
 
-  const gmapsRoute =
-    `https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(
-      d.pickup_address ||
-        ""
-    )}&destination=${encodeURIComponent(
-      d.dropoff_address ||
-        ""
-    )}&travelmode=driving`;
+  const openGoogleMapsRoute = () => {
+    const pickup = String(
+      d.pickup_address || ""
+    ).trim();
+
+    const dropoff = String(
+      d.dropoff_address || ""
+    ).trim();
+
+    if (!pickup || !dropoff) {
+      toast.error(
+        "Endereço de retirada ou entrega não informado."
+      );
+      return;
+    }
+
+    const openRoute = (origin) => {
+      const params =
+        new URLSearchParams({
+          api: "1",
+          origin,
+          destination: dropoff,
+          waypoints: pickup,
+          travelmode: "driving",
+          dir_action: "navigate",
+        });
+
+      window.open(
+        `https://www.google.com/maps/dir/?${params.toString()}`,
+        "_blank",
+        "noopener,noreferrer"
+      );
+    };
+
+    if (
+      !navigator.geolocation
+    ) {
+      toast.error(
+        "Seu dispositivo não oferece localização. Abrindo a rota a partir da retirada."
+      );
+      openRoute(pickup);
+      return;
+    }
+
+    toast.info(
+      "Obtendo sua localização atual..."
+    );
+
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        const origin =
+          `${position.coords.latitude},${position.coords.longitude}`;
+
+        openRoute(origin);
+      },
+      (error) => {
+        console.warn(
+          "[GiroExpress] Não foi possível obter a localização atual:",
+          error
+        );
+
+        toast.error(
+          "Não foi possível obter sua localização. Ative a permissão de localização e tente novamente."
+        );
+      },
+      {
+        enableHighAccuracy: true,
+        timeout: 12000,
+        maximumAge: 30000,
+      }
+    );
+  };
 
   const orderCode =
     String(
@@ -3552,7 +3616,10 @@ function DeliveryCard({
   const pickupAddress =
     String(
       d.pickup_address ||
-        "Loja"
+        d.store_address ||
+        d.pickup?.address ||
+        d.store?.address ||
+        "Endereço de retirada não informado"
     )
       .replace(
         /^#+/,
@@ -3626,6 +3693,10 @@ function DeliveryCard({
               Retirada:
             </p>
 
+            <p className="text-xs font-semibold text-white">
+              {storeName}
+            </p>
+
             <p className="font-medium text-white">
               {pickupAddress}
             </p>
@@ -3637,7 +3708,10 @@ function DeliveryCard({
 
           <div>
             <p className="text-xs text-slate-400">
-              Cliente:{" "}
+              Entrega:
+            </p>
+
+            <p className="text-xs font-semibold text-white">
               {clientName}
             </p>
 
@@ -3763,16 +3837,15 @@ function DeliveryCard({
           ].includes(
             d.status
           ) && (
-            <a
+            <button
+              type="button"
               data-testid={`navigate-${
                 d.id ||
                 d._id
               }`}
-              href={
-                gmapsRoute
+              onClick={
+                openGoogleMapsRoute
               }
-              target="_blank"
-              rel="noreferrer"
               className="bg-slate-800 hover:bg-slate-700 text-orange-400 px-3 py-2.5 rounded-xl text-xs font-semibold flex items-center space-x-1 border border-slate-700"
             >
               <ExternalLink className="w-3.5 h-3.5" />
@@ -3780,7 +3853,7 @@ function DeliveryCard({
               <span>
                 Google Maps
               </span>
-            </a>
+            </button>
           )}
 
         <button
