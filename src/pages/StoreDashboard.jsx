@@ -148,6 +148,9 @@ export default function StoreDashboard() {
   const [deliveries, setDeliveries] =
     useState([]);
 
+  const [showDeliveryList, setShowDeliveryList] =
+    useState(false);
+
   const [products, setProducts] =
     useState([]);
 
@@ -1856,12 +1859,31 @@ export default function StoreDashboard() {
 
             <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6">
 
-              <h2 className="text-lg font-bold text-white mb-4">
-                Lista de Pedidos e
-                Corridas
-              </h2>
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
+                <h2 className="text-lg font-bold text-white">
+                  Lista de Pedidos e Corridas
+                </h2>
 
-              {loading ? (
+                <button
+                  type="button"
+                  onClick={() =>
+                    setShowDeliveryList(
+                      (previous) => !previous
+                    )
+                  }
+                  className="rounded-xl border border-orange-500/30 bg-orange-500/10 px-4 py-2 text-sm font-bold text-orange-300 hover:bg-orange-500/20 transition"
+                >
+                  {showDeliveryList
+                    ? "Ocultar pedidos e corridas"
+                    : "Mostrar pedidos e corridas"}
+                </button>
+              </div>
+
+              {!showDeliveryList ? (
+                <p className="text-slate-500 text-center py-6">
+                  A lista está oculta.
+                </p>
+              ) : loading ? (
                 <p className="text-slate-500 text-center py-8">
                   Carregando...
                 </p>
