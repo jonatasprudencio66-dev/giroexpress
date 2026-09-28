@@ -8,6 +8,7 @@ import {
   Loader2,
   Shield,
   Users,
+  Store,
   DollarSign,
   Package,
   Headphones,
@@ -376,6 +377,7 @@ export default function AdminDashboard() {
   const [showAllConfirmedPayments, setShowAllConfirmedPayments] = useState(false);
   const [showAllConfirmedStorePayments, setShowAllConfirmedStorePayments] = useState(false);
   const [showGiroCycleHistory, setShowGiroCycleHistory] = useState(false);
+  const [billingView, setBillingView] = useState("current");
 
   const getTodayInputDate = () => {
     const now = new Date();
@@ -413,6 +415,35 @@ export default function AdminDashboard() {
       end: toInputDate(finish),
     };
   };
+
+
+  // Filtros independentes dos relatórios por ciclo.
+  // As datas começam automaticamente na semana atual.
+  const [giroCycleStart, setGiroCycleStart] = useState(
+    () => getCurrentWeekInputDates().start
+  );
+  const [giroCycleEnd, setGiroCycleEnd] = useState(
+    () => getCurrentWeekInputDates().end
+  );
+  const [giroCycleAppliedStart, setGiroCycleAppliedStart] = useState(
+    () => getCurrentWeekInputDates().start
+  );
+  const [giroCycleAppliedEnd, setGiroCycleAppliedEnd] = useState(
+    () => getCurrentWeekInputDates().end
+  );
+
+  const [financialCycleStart, setFinancialCycleStart] = useState(
+    () => getCurrentWeekInputDates().start
+  );
+  const [financialCycleEnd, setFinancialCycleEnd] = useState(
+    () => getCurrentWeekInputDates().end
+  );
+  const [financialCycleAppliedStart, setFinancialCycleAppliedStart] = useState(
+    () => getCurrentWeekInputDates().start
+  );
+  const [financialCycleAppliedEnd, setFinancialCycleAppliedEnd] = useState(
+    () => getCurrentWeekInputDates().end
+  );
 
 
   const [periodStart, setPeriodStart] = useState(
@@ -1823,6 +1854,62 @@ export default function AdminDashboard() {
     }))
     .sort((a, b) => String(b.cycle_key).localeCompare(String(a.cycle_key)));
 
+  const cycleItemIsInPeriod = (item, startDate, endDate) => {
+    if (!startDate || !endDate) return true;
+
+    const [cycleStartRaw, cycleEndRaw] = String(item?.cycle_key || "").split("|");
+    const cycleStart = String(cycleStartRaw || "").slice(0, 10);
+    const cycleEnd = String(cycleEndRaw || cycleStart || "").slice(0, 10);
+
+    if (!cycleStart) return false;
+
+    // Exibe o ciclo quando ele cruza o intervalo escolhido.
+    return cycleStart <= endDate && cycleEnd >= startDate;
+  };
+
+  const filteredGiroHistory = giroHistory.filter((item) =>
+    cycleItemIsInPeriod(item, giroCycleAppliedStart, giroCycleAppliedEnd)
+  );
+
+  const filteredFinancialHistory = giroHistory.filter((item) =>
+    cycleItemIsInPeriod(
+      item,
+      financialCycleAppliedStart,
+      financialCycleAppliedEnd
+    )
+  );
+
+  const applyGiroCyclePeriod = () => {
+    if (!giroCycleStart || !giroCycleEnd) {
+      toast.error("Informe a data inicial e a data final.");
+      return;
+    }
+
+    if (giroCycleStart > giroCycleEnd) {
+      toast.error("A data inicial não pode ser maior que a data final.");
+      return;
+    }
+
+    setGiroCycleAppliedStart(giroCycleStart);
+    setGiroCycleAppliedEnd(giroCycleEnd);
+    setShowGiroCycleHistory(true);
+  };
+
+  const applyFinancialCyclePeriod = () => {
+    if (!financialCycleStart || !financialCycleEnd) {
+      toast.error("Informe a data inicial e a data final.");
+      return;
+    }
+
+    if (financialCycleStart > financialCycleEnd) {
+      toast.error("A data inicial não pode ser maior que a data final.");
+      return;
+    }
+
+    setFinancialCycleAppliedStart(financialCycleStart);
+    setFinancialCycleAppliedEnd(financialCycleEnd);
+  };
+
   const totalStoreReceived = (billing.history || [])
     .filter((cycle) => String(cycle?.status || "").toLowerCase() === "paid")
     .reduce((sum, cycle) => sum + getStoreCycleAmount(cycle), 0);
@@ -2423,7 +2510,7 @@ export default function AdminDashboard() {
 
             <div className="flex items-center gap-3 shrink-0">
               <span className="hidden sm:inline text-sm text-emerald-400 font-semibold">
-                {giroHistory.length} {giroHistory.length === 1 ? "ciclo" : "ciclos"}
+                {filteredGiroHistory.length} {filteredGiroHistory.length === 1 ? "ciclo" : "ciclos"}
               </span>
               <span className="text-slate-400 text-xl leading-none">
                 {showGiroCycleHistory ? "▲" : "▼"}
@@ -2433,15 +2520,65 @@ export default function AdminDashboard() {
 
           {showGiroCycleHistory && (
             <div className="border-t border-slate-800 p-6 pt-5">
-              {giroHistory.length === 0 ? (
+              <div className="mb-5 rounded-xl border border-emerald-500/20 bg-slate-950/60 p-4">
+                <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+                  <div>
+                    <p className="text-sm font-semibold text-white flex items-center gap-2">
+                      <Calendar className="w-4 h-4 text-emerald-400" />
+                      Consultar ciclos por período
+                    </p>
+                    <p className="text-xs text-slate-500 mt-1">
+                      A semana atual já vem preenchida automaticamente. Você pode alterar as datas e clicar em Consultar.
+                    </p>
+                  </div>
+
+                  <div className="flex flex-col sm:flex-row gap-3">
+                    <div>
+                      <label className="block text-xs text-slate-500 mb-1">
+                        Data inicial
+                      </label>
+                      <input
+                        type="date"
+                        value={giroCycleStart}
+                        onChange={(event) => setGiroCycleStart(event.target.value)}
+                        className="rounded-xl border border-slate-700 bg-slate-950 px-3 py-2.5 text-sm text-white outline-none focus:border-emerald-500"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-xs text-slate-500 mb-1">
+                        Data final
+                      </label>
+                      <input
+                        type="date"
+                        value={giroCycleEnd}
+                        onChange={(event) => setGiroCycleEnd(event.target.value)}
+                        className="rounded-xl border border-slate-700 bg-slate-950 px-3 py-2.5 text-sm text-white outline-none focus:border-emerald-500"
+                      />
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={applyGiroCyclePeriod}
+                      disabled={!giroCycleStart || !giroCycleEnd}
+                      className="inline-flex items-center justify-center gap-2 rounded-xl bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-emerald-500 disabled:opacity-50"
+                    >
+                      <Eye className="w-4 h-4" />
+                      Consultar
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {filteredGiroHistory.length === 0 ? (
                 <div className="rounded-xl border border-dashed border-slate-700 p-8 text-center">
                   <p className="text-slate-400">
-                    Nenhum ciclo de loja fechado ainda. Quando você fechar uma loja, o ganho daquele ciclo aparecerá aqui.
+                    Nenhum ciclo encontrado no período selecionado.
                   </p>
                 </div>
               ) : (
                 <div className="space-y-3">
-                  {giroHistory.map((item, index) => (
+                  {filteredGiroHistory.map((item, index) => (
                     <div
                       key={`giro-cycle-${item.cycle_key}-${index}`}
                       className="rounded-xl border border-slate-800 bg-slate-950/70 p-4"
@@ -2516,10 +2653,60 @@ export default function AdminDashboard() {
                       </div>
                     </div>
           
-                    {giroHistory.length === 0 ? (
+                    <div className="mb-5 rounded-xl border border-emerald-500/20 bg-slate-950/60 p-4">
+                      <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+                        <div>
+                          <p className="text-sm font-semibold text-white flex items-center gap-2">
+                            <Calendar className="w-4 h-4 text-emerald-400" />
+                            Consultar ciclos por período
+                          </p>
+                          <p className="text-xs text-slate-500 mt-1">
+                            A semana atual já vem preenchida automaticamente. Você pode alterar as datas e clicar em Consultar.
+                          </p>
+                        </div>
+
+                        <div className="flex flex-col sm:flex-row gap-3">
+                          <div>
+                            <label className="block text-xs text-slate-500 mb-1">
+                              Data inicial
+                            </label>
+                            <input
+                              type="date"
+                              value={financialCycleStart}
+                              onChange={(event) => setFinancialCycleStart(event.target.value)}
+                              className="rounded-xl border border-slate-700 bg-slate-950 px-3 py-2.5 text-sm text-white outline-none focus:border-emerald-500"
+                            />
+                          </div>
+
+                          <div>
+                            <label className="block text-xs text-slate-500 mb-1">
+                              Data final
+                            </label>
+                            <input
+                              type="date"
+                              value={financialCycleEnd}
+                              onChange={(event) => setFinancialCycleEnd(event.target.value)}
+                              className="rounded-xl border border-slate-700 bg-slate-950 px-3 py-2.5 text-sm text-white outline-none focus:border-emerald-500"
+                            />
+                          </div>
+
+                          <button
+                            type="button"
+                            onClick={applyFinancialCyclePeriod}
+                            disabled={!financialCycleStart || !financialCycleEnd}
+                            className="inline-flex items-center justify-center gap-2 rounded-xl bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-emerald-500 disabled:opacity-50"
+                          >
+                            <Eye className="w-4 h-4" />
+                            Consultar
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+
+                    {filteredFinancialHistory.length === 0 ? (
                       <div className="rounded-xl border border-dashed border-slate-700 p-8 text-center">
                         <p className="text-slate-400">
-                          Nenhum ciclo fechado para exibir o faturamento.
+                          Nenhum ciclo encontrado no período selecionado.
                         </p>
                       </div>
                     ) : (
@@ -2555,7 +2742,7 @@ export default function AdminDashboard() {
                           </thead>
           
                           <tbody>
-                            {giroHistory.map((item, index) => (
+                            {filteredFinancialHistory.map((item, index) => (
                               <tr
                                 key={`giro-history-${item.cycle_label}-${index}`}
                                 className="border-b border-slate-800/70 last:border-0"
@@ -2600,1010 +2787,149 @@ export default function AdminDashboard() {
           
                   </section>
 
-        <section className="bg-slate-900 border border-slate-800 rounded-2xl p-6">
-
-          <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between mb-6">
-
-            <div>
-              <h2 className="text-lg font-semibold text-white flex items-center gap-2">
-                <Calendar className="w-5 h-5 text-blue-400" />
-                Fechamento das lojas
-              </h2>
-
-              <p className="text-sm text-slate-400 mt-1">
-                Configure o dia de fechamento e feche o ciclo manualmente em qualquer data.
-              </p>
-            </div>
-
-            <button
-              type="button"
-              onClick={() => loadBilling(true)}
-              disabled={billingLoading}
-              className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-700 bg-slate-950 px-4 py-2 text-sm text-slate-200 hover:bg-slate-800 disabled:opacity-50"
-            >
-              <RefreshCw
-                className={`w-4 h-4 ${
-                  billingLoading
-                    ? "animate-spin"
-                    : ""
-                }`}
-              />
-
-              Atualizar fechamentos
-            </button>
-          </div>
-
-          {billingLoading &&
-          billing.stores.length === 0 ? (
-            <div className="flex items-center justify-center py-12 text-slate-400">
-              <Loader2 className="w-6 h-6 animate-spin mr-3" />
-              Carregando fechamentos...
-            </div>
-          ) : billing.stores.length === 0 ? (
-            <div className="rounded-xl border border-dashed border-slate-700 p-8 text-center">
-              <p className="text-slate-400">
-                Nenhuma loja cadastrada.
-              </p>
-            </div>
-          ) : (
-            <div className="space-y-4">
-
-              {billing.stores.map(
-                (store, index) => {
-                  const storeId = String(
-                    store.id ||
-                      store._id ||
-                      `store-${index}`
-                  );
-
-                  const cycle =
-                    getCurrentCycleForStore(
-                      storeId
-                    );
-
-                  const pendingPaymentCycle =
-                    getLatestClosedStoreCycle(storeId);
-
-                  const currentStoreAmount = Number(
-                    cycle?.total_gross ??
-                      cycle?.total_billing ??
-                      cycle?.total_fee ??
-                      0
-                  );
-
-                  const closedStoreAmount = Number(
-                    pendingPaymentCycle?.total_gross ??
-                      pendingPaymentCycle?.total_billing ??
-                      pendingPaymentCycle?.total_to_pay ??
-                      pendingPaymentCycle?.total_amount ??
-                      0
-                  );
-
-                  const visibleStoreAmount =
-                    pendingPaymentCycle
-                      ? (closedStoreAmount > 0
-                          ? closedStoreAmount
-                          : currentStoreAmount)
-                      : currentStoreAmount;
-
-                  const visibleStoreDeliveries =
-                    pendingPaymentCycle
-                      ? Number(
-                          pendingPaymentCycle?.total_deliveries ??
-                            cycle?.total_deliveries ??
-                            0
-                        )
-                      : Number(cycle?.total_deliveries || 0);
-
-                  const isSaving =
-                    savingStoreDay ===
-                    storeId;
-
-                  const isClosing =
-                    closingStore ===
-                    storeId;
-
-                  const cycleStatus =
-                    pendingPaymentCycle
-                      ? "closed"
-                      : (cycle?.status || "open");
-
-                  return (
-                    <div
-                      key={`store-${storeId}-${index}`}
-                      className="rounded-2xl border border-slate-800 bg-slate-950 p-5"
-                    >
-
-                      <div className="flex flex-col gap-5 xl:flex-row xl:items-center xl:justify-between">
-
-                        <div className="min-w-0">
-                          <div className="flex items-center gap-3">
-
-                            <div className="w-10 h-10 rounded-xl bg-slate-800 flex items-center justify-center">
-                              <Package className="w-5 h-5 text-slate-300" />
-                            </div>
-
-                            <div className="min-w-0">
-                              <h3 className="font-semibold text-white truncate">
-                                {getStoreName(
-                                  store
-                                )}
-                              </h3>
-
-                              {store.email && (
-                                <p className="text-xs text-slate-500 truncate">
-                                  {normalizeText(
-                                    store.email
-                                  )}
-                                </p>
-                              )}
-                            </div>
-
-                          </div>
-                        </div>
-
-                        <div className="flex flex-col sm:flex-row gap-3">
-
-                          <div>
-                            <label className="block text-xs text-slate-500 mb-1">
-                              Dia de fechamento
-                            </label>
-
-                            <select
-                              value={Number(
-                                store.closing_weekday ?? 6
-                              )}
-                              onChange={(event) =>
-                                saveStoreClosingDay(
-                                  storeId,
-                                  event.target.value
-                                )
-                              }
-                              disabled={isSaving}
-                              className="w-full sm:w-48 rounded-xl border border-slate-700 bg-slate-900 px-3 py-2.5 text-sm text-white outline-none focus:border-blue-500 disabled:opacity-50"
-                            >
-                              {billing.weekdays.map(
-                                (day, dayIndex) => (
-                                  <option
-                                    key={`weekday-${day.value}-${dayIndex}`}
-                                    value={day.value}
-                                  >
-                                    {day.label}
-                                  </option>
-                                )
-                              )}
-                            </select>
-                          </div>
-
-                          {isSaving && (
-                            <div className="flex items-end pb-2">
-                              <Loader2 className="w-5 h-5 animate-spin text-slate-400" />
-                            </div>
-                          )}
-
-                        </div>
-                      </div>
-
-                      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-3 mt-5">
-
-                        <div className="rounded-xl border border-slate-800 bg-slate-900 p-4">
-                          <p className="text-xs text-slate-500">
-                            Ciclo atual
-                          </p>
-
-                          <p className="text-sm font-medium text-white mt-1">
-                            {getCurrentWeekLabel()}
-                          </p>
-                        </div>
-
-                        <div className="rounded-xl border border-slate-800 bg-slate-900 p-4">
-                          <p className="text-xs text-slate-500">
-                            Dia escolhido
-                          </p>
-
-                          <p className="text-sm font-medium text-white mt-1">
-                            {getBillingDayLabel(
-                              cycle?.closing_weekday ?? store.closing_weekday ?? 6
-                            )}
-                          </p>
-                        </div>
-
-                        <div className="rounded-xl border border-slate-800 bg-slate-900 p-4">
-                          <p className="text-xs text-slate-500">
-                            Entregas concluídas
-                          </p>
-
-                          <p className="text-xl font-bold text-white mt-1">
-                            {visibleStoreDeliveries}
-                          </p>
-                        </div>
-
-                        <div className="rounded-xl border border-slate-800 bg-slate-900 p-4">
-                          <p className="text-xs text-slate-500">
-                            Valor do ciclo
-                          </p>
-
-                          <p className="text-xl font-bold text-emerald-400 mt-1">
-                            {formatBRL(visibleStoreAmount)}
-                          </p>
-                        </div>
-
-                        <div className="rounded-xl border border-slate-800 bg-slate-900 p-4">
-                          <p className="text-xs text-slate-500">
-                            Status
-                          </p>
-
-                          <span
-                            className={`inline-flex mt-2 items-center rounded-full border px-2.5 py-1 text-xs font-medium ${getBillingStatusClass(
-                              cycleStatus
-                            )}`}
-                          >
-                            {getStatusLabel(
-                              cycleStatus
-                            )}
-                          </span>
-                        </div>
-
-                      </div>
-
-                      <div className="flex flex-wrap gap-3 mt-5">
-
-                        <button
-                          type="button"
-                          onClick={() =>
-                            setExpandedBillingCycles((prev) => ({
-                              ...prev,
-                              [storeId]: !prev[storeId],
-                            }))
-                          }
-                          className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-700 bg-slate-900 px-4 py-2.5 text-sm font-semibold text-slate-200 hover:bg-slate-800"
-                        >
-                          {expandedBillingCycles[storeId]
-                            ? "Ocultar detalhes"
-                            : "Ver detalhes do ciclo"}
-                        </button>
-
-
-                        {String(
-                          cycleStatus
-                        ).toLowerCase() ===
-                          "open" && (
-                          <button
-                            type="button"
-                            onClick={() =>
-                              setStoreCloseConfirmation({
-                                storeId,
-                                storeName: getStoreName(store),
-                                deliveries: Number(cycle?.total_deliveries || 0),
-                                gross: Number(
-                                  cycle?.total_gross ??
-                                    cycle?.total_billing ??
-                                    0
-                                ),
-                              })
-                            }
-                            disabled={
-                              isClosing ||
-                              closingStore !==
-                                null
-                            }
-                            className="inline-flex items-center justify-center gap-2 rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-500 disabled:opacity-50"
-                          >
-                            {isClosing ? (
-                              <Loader2 className="w-4 h-4 animate-spin" />
-                            ) : (
-                              <CheckCircle2 className="w-4 h-4" />
-                            )}
-
-                            Fechar ciclo agora
-                          </button>
-                        )}
-
-                        {String(
-                          cycleStatus
-                        ).toLowerCase() ===
-                          "closed" &&
-                          cycle?.id && (
-                            <button
-                              type="button"
-                              onClick={() =>
-                                payBilling(
-                                  cycle.id
-                                )
-                              }
-                              disabled={
-                                payingCycle !==
-                                  null
-                              }
-                              className="inline-flex items-center justify-center gap-2 rounded-xl bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-emerald-500 disabled:opacity-50"
-                            >
-                              {payingCycle ===
-                              cycle.id ? (
-                                <Loader2 className="w-4 h-4 animate-spin" />
-                              ) : (
-                                <CircleDollarSign className="w-4 h-4" />
-                              )}
-
-                              Marcar como pago
-                            </button>
-                          )}
-
-                        {(() => {
-                          const pendingCycle = getLatestClosedStoreCycle(storeId);
-                          if (!pendingCycle) return null;
-
-                          const pendingCycleId =
-                            pendingCycle?.id || pendingCycle?._id || null;
-                          const rawPendingAmount = Number(
-                            pendingCycle?.total_gross ??
-                              pendingCycle?.total_billing ??
-                              pendingCycle?.total_to_pay ??
-                              pendingCycle?.total_amount ??
-                              0
-                          );
-                          const pendingAmount =
-                            rawPendingAmount > 0
-                              ? rawPendingAmount
-                              : visibleStoreAmount;
-
-                          return (
-                            <div className="mt-4 flex flex-col gap-3 rounded-xl border border-emerald-500/30 bg-emerald-500/5 p-4 md:flex-row md:items-center md:justify-between">
-                              <div>
-                                <p className="text-xs font-semibold uppercase tracking-wide text-emerald-400">
-                                  Fechamento aguardando confirmação de pagamento
-                                </p>
-                                <p className="mt-1 text-xl font-black text-white">
-                                  {formatBRL(pendingAmount)}
-                                </p>
-                                <p className="mt-1 text-xs text-slate-400">
-                                  {formatDateBR(pendingCycle?.period_start)} até{" "}
-                                  {formatDateBR(pendingCycle?.period_end)}
-                                </p>
-                              </div>
-
-                              {pendingCycleId && (
-                                <button
-                                  type="button"
-                                  onClick={() => payBilling(pendingCycleId)}
-                                  disabled={payingCycle !== null}
-                                  className="inline-flex items-center justify-center gap-2 rounded-xl bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-emerald-500 disabled:opacity-50"
-                                >
-                                  {payingCycle === pendingCycleId ? (
-                                    <Loader2 className="h-4 w-4 animate-spin" />
-                                  ) : (
-                                    <CircleDollarSign className="h-4 w-4" />
-                                  )}
-                                  Confirmar pagamento da loja
-                                </button>
-                              )}
-                            </div>
-                          );
-                        })()}
-
-                        {expandedBillingCycles[storeId] && (
-                        <div className="mt-4 rounded-xl border border-slate-800 bg-slate-950 p-4">
-                          <p className="text-sm font-semibold text-white mb-3">
-                            Detalhes do ciclo
-                          </p>
-                          {Array.isArray(cycle?.delivery_details) &&
-                          cycle.delivery_details.length > 0 ? (
-                            <div className="overflow-x-auto rounded-lg border border-slate-800">
-                              <table className="w-full text-xs">
-                                <thead>
-                                  <tr className="border-b border-slate-800 text-left">
-                                    <th className="px-3 py-2 text-slate-500">Data</th>
-                                    <th className="px-3 py-2 text-slate-500">Corrida</th>
-                                    <th className="px-3 py-2 text-slate-500">Entregador</th>
-                                    <th className="px-3 py-2 text-slate-500">Valor</th>
-                                  </tr>
-                                </thead>
-                                <tbody>
-                                  {cycle.delivery_details.map((delivery, detailIndex) => (
-                                    <tr
-                                      key={`${storeId}-cycle-detail-${delivery?.id || detailIndex}`}
-                                      className="border-b border-slate-800/70 last:border-0"
-                                    >
-                                      <td className="px-3 py-2 text-slate-300 whitespace-nowrap">
-                                        {formatDateTimeBR(
-                                          delivery?.date ||
-                                          delivery?.completed_at ||
-                                          delivery?.created_at
-                                        )}
-                                      </td>
-                                      <td className="px-3 py-2 text-white font-medium">
-                                        {normalizeText(
-                                          delivery?.code,
-                                          delivery?.id || "—"
-                                        )}
-                                      </td>
-                                      <td className="px-3 py-2 text-slate-300">
-                                        {normalizeText(
-                                          delivery?.courier_name,
-                                          "Não informado"
-                                        )}
-                                      </td>
-                                      <td className="px-3 py-2 text-emerald-400 font-semibold">
-                                        {formatBRL(Number(delivery?.gross_price || 0))}
-                                      </td>
-                                    </tr>
-                                  ))}
-                                </tbody>
-                              </table>
-                            </div>
-                          ) : (
-                            <p className="text-sm text-slate-500">
-                              Nenhuma entrega concluída neste ciclo.
-                            </p>
-                          )}
-                        </div>
-                      )}
-
-                      {String(
-                          cycleStatus
-                        ).toLowerCase() ===
-                          "paid" && (
-                          <div className="inline-flex items-center gap-2 rounded-xl border border-emerald-500/20 bg-emerald-500/10 px-4 py-2.5 text-sm text-emerald-400">
-                            <CheckCircle2 className="w-4 h-4" />
-                            Fechamento pago
-                          </div>
-                        )}
-
-                      </div>
-
-                      {cycle?.paid_at && (
-                        <p className="text-xs text-slate-500 mt-3">
-                          Pago em{" "}
-                          {formatDateTimeBR(
-                            cycle.paid_at
-                          )}
-                        </p>
-                      )}
-
-                      {cycle?.closed_at && (
-                        <p className="text-xs text-slate-500 mt-1">
-                          Fechado em{" "}
-                          {formatDateTimeBR(
-                            cycle.closed_at
-                          )}
-                        </p>
-                      )}
-
-                    </div>
-                  );
-                }
-              )}
-
-            </div>
-          )}
-        </section>
-
-        
-
         {/* =====================================================
-            PAGAMENTOS CONFIRMADOS DAS LOJAS
+            FATURAMENTO SIMPLES — LOJAS E ENTREGADORES
+            Fluxo: Ciclo atual -> Aguardando pagamento -> Histórico
             ===================================================== */}
-        <div className="rounded-2xl border border-emerald-500/20 bg-slate-950/40 overflow-hidden">
+        <section className="space-y-5">
           {(() => {
-            const paidStoreCycles = (billing.history || [])
-              .filter(
-                (cycle) =>
-                  String(cycle?.status || "").toLowerCase() === "paid"
-              )
-              .sort((a, b) =>
-                String(
-                  b?.paid_at ||
-                    b?.updated_at ||
-                    b?.period_end ||
-                    ""
-                ).localeCompare(
-                  String(
-                    a?.paid_at ||
-                      a?.updated_at ||
-                      a?.period_end ||
-                      ""
-                  )
-                )
-              );
+            const storeCurrent = Array.isArray(billing?.current_cycles) ? billing.current_cycles : [];
+            const courierCurrent = Array.isArray(billing?.courier_current_cycles) ? billing.courier_current_cycles : [];
+            const storeClosed = (billing?.history || []).filter((c) => String(c?.status || "").toLowerCase() === "closed");
+            const courierClosed = (billing?.courier_history || []).filter((c) => String(c?.status || "").toLowerCase() === "closed");
+            const storePaid = (billing?.history || []).filter((c) => String(c?.status || "").toLowerCase() === "paid");
+            const courierPaid = (billing?.courier_history || []).filter((c) => String(c?.status || "").toLowerCase() === "paid");
 
-            const lastPaidStore = paidStoreCycles[0];
-
-            const storeNameFromCycle = (cycle) => {
-              const store = (billing.stores || []).find(
-                (item) =>
-                  String(item?.id || item?._id || "") ===
-                  String(cycle?.store_id || "")
-              );
-
-              return normalizeText(
-                cycle?.store_name ||
-                  store?.name ||
-                  store?.store_name ||
-                  store?.email ||
-                  "Loja"
-              );
-            };
-
-            // A loja paga o valor integral das corridas do ciclo.
-            const storePaidAmount = (cycle) =>
-              Number(
-                cycle?.total_gross ??
-                  cycle?.total_billing ??
-                  cycle?.total_to_pay ??
-                  cycle?.value_to_pay ??
-                  cycle?.total_amount ??
-                  cycle?.total_fee ??
-                  0
-              );
-
-            return (
-              <>
-                <div className="px-5 py-4">
-                  <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-                    <div>
-                      <h3 className="font-bold text-white flex items-center gap-2">
-                        <CheckCircle2 className="w-5 h-5 text-emerald-400" />
-                        Último pagamento confirmado das lojas
-                      </h3>
-
-                      {lastPaidStore ? (
-                        <div className="mt-3">
-                          <p className="font-semibold text-white">
-                            {storeNameFromCycle(lastPaidStore)}
-                          </p>
-
-                          <p className="text-sm text-slate-400 mt-1">
-                            {formatDateBR(lastPaidStore?.display_period_start || lastPaidStore?.period_start)}
-                            {" até "}
-                            {formatDateBR(lastPaidStore?.display_period_end || lastPaidStore?.period_end)}
-                          </p>
-
-                          <p className="text-2xl font-black text-emerald-400 mt-1">
-                            {formatBRL(storePaidAmount(lastPaidStore))}
-                          </p>
-
-                          <p className="text-xs text-slate-500 mt-1">
-                            {Number(lastPaidStore?.total_deliveries || 0)} corridas
-                            {" • "}
-                            {formatDateTimeBR(lastPaidStore?.paid_at)}
-                          </p>
-                        </div>
-                      ) : (
-                        <p className="text-sm text-slate-400 mt-3">
-                          Nenhum pagamento de loja confirmado até o momento.
-                        </p>
-                      )}
-                    </div>
-
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setShowAllConfirmedStorePayments(
-                          (value) => !value
-                        )
-                      }
-                      className="px-4 py-2 rounded-xl border border-slate-700 text-sm font-bold text-white hover:bg-slate-800"
-                    >
-                      {showAllConfirmedStorePayments
-                        ? "Ocultar ciclos"
-                        : "Ver todos os ciclos"}
-                    </button>
-                  </div>
-                </div>
-
-                {showAllConfirmedStorePayments && (
-                  <div className="border-t border-slate-800 overflow-x-auto">
-                    {paidStoreCycles.length === 0 ? (
-                      <div className="p-5 text-sm text-slate-400">
-                        Nenhum pagamento de loja confirmado.
-                      </div>
-                    ) : (
-                      <table className="w-full text-sm">
-                        <thead className="bg-slate-950/70 text-slate-500">
-                          <tr>
-                            <th className="px-4 py-3 text-left">Loja</th>
-                            <th className="px-4 py-3 text-left">Ciclo</th>
-                            <th className="px-4 py-3 text-left">Corridas</th>
-                            <th className="px-4 py-3 text-left">Valor pago</th>
-                            <th className="px-4 py-3 text-left">Confirmado em</th>
-                            <th className="px-4 py-3 text-left">Status</th>
-                          </tr>
-                        </thead>
-
-                        <tbody className="divide-y divide-slate-800">
-                          {paidStoreCycles.map((cycle, index) => (
-                            <tr
-                              key={
-                                cycle?.id ||
-                                cycle?._id ||
-                                `${cycle?.store_id}-${cycle?.period_start}-${cycle?.period_end}-${index}`
-                              }
-                            >
-                              <td className="px-4 py-4 font-semibold text-white">
-                                {storeNameFromCycle(cycle)}
-                              </td>
-
-                              <td className="px-4 py-4 text-slate-300">
-                                {formatDateBR(cycle?.display_period_start || cycle?.period_start)}
-                                {" até "}
-                                {formatDateBR(cycle?.display_period_end || cycle?.period_end)}
-                              </td>
-
-                              <td className="px-4 py-4 text-slate-300">
-                                {Number(cycle?.total_deliveries || 0)}
-                              </td>
-
-                              <td className="px-4 py-4 text-emerald-400 font-bold">
-                                {formatBRL(storePaidAmount(cycle))}
-                              </td>
-
-                              <td className="px-4 py-4 text-slate-300">
-                                {formatDateTimeBR(cycle?.paid_at)}
-                              </td>
-
-                              <td className="px-4 py-4 text-emerald-400">
-                                Pago
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    )}
-                  </div>
-                )}
-              </>
+            const storeName = (cycle) => normalizeText(
+              cycle?.store_name ||
+              (billing?.stores || []).find((s) => String(s?.id || s?._id || "") === String(cycle?.store_id || ""))?.name ||
+              "Loja"
             );
-          })()}
-        </div>
+            const courierName = (cycle) => normalizeText(
+              cycle?.courier_name ||
+              (billing?.couriers || []).find((c) => String(c?.id || c?._id || "") === String(cycle?.courier_id || ""))?.name ||
+              couriers.find((c) => String(c?.id || c?._id || "") === String(cycle?.courier_id || ""))?.name ||
+              "Entregador"
+            );
+            const storeGross = (c) => Number(c?.total_gross ?? c?.total_billing ?? c?.value_to_pay ?? c?.total_amount ?? 0);
+            const platformFee = (c) => Number(c?.total_platform_fee ?? (Number(c?.total_deliveries || 0) * 1));
+            const courierGross = (c) => Number(c?.total_gross ?? 0);
+            const courierNet = (c) => Number(c?.total_courier ?? c?.total_to_pay ?? c?.value_to_pay ?? 0);
+            const cyclePeriod = (c) => `${formatDateBR(c?.display_period_start || c?.period_start)} até ${formatDateBR(c?.display_period_end || c?.period_end)}`;
 
-        <section className="bg-slate-900 border border-slate-800 rounded-2xl p-6">
-          <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between mb-6">
-            <div className="flex items-center gap-3">
-              <div className="w-11 h-11 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center">
-                <Users className="w-6 h-6 text-emerald-400" />
-              </div>
-              <div>
-                <h2 className="text-lg font-semibold text-white">
-                  Pagamentos dos entregadores
-                </h2>
-                <p className="text-sm text-slate-400 mt-1">
-                  Acompanhe somente o ciclo atual da semana e confirme o pagamento quando necessário.
-                </p>
-              </div>
-            </div>
+            const currentDeliveries = storeCurrent.reduce((sum, c) => sum + Number(c?.total_deliveries || 0), 0);
+            const currentStores = storeCurrent.reduce((sum, c) => sum + storeGross(c), 0);
+            const currentCouriers = courierCurrent.reduce((sum, c) => sum + courierNet(c), 0);
+            const currentGiro = storeCurrent.reduce((sum, c) => sum + platformFee(c), 0);
 
-            <button
-              type="button"
-              onClick={() => loadBilling(true)}
-              disabled={billingLoading}
-              className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-700 bg-slate-950 px-4 py-2 text-sm text-slate-200 hover:bg-slate-800 disabled:opacity-50"
-            >
-              <RefreshCw
-                className={`w-4 h-4 ${billingLoading ? "animate-spin" : ""}`}
-              />
-              Atualizar entregadores
-            </button>
-          </div>
-
-          {billingLoading &&
-          billing.couriers.length === 0 &&
-          billing.courier_current_cycles.length === 0 ? (
-            <div className="flex items-center justify-center py-12 text-slate-400">
-              <Loader2 className="w-6 h-6 animate-spin mr-3" />
-              Carregando pagamentos dos entregadores...
-            </div>
-          ) : billing.couriers.length === 0 &&
-            billing.courier_current_cycles.length === 0 &&
-            billing.courier_history.length === 0 ? (
-            <div className="rounded-xl border border-dashed border-slate-700 p-8 text-center">
-              <Users className="w-9 h-9 mx-auto text-slate-600 mb-3" />
-              <p className="text-white font-medium">
-                Nenhum entregador encontrado.
-              </p>
-              <p className="text-sm text-slate-500 mt-2">
-                Verifique se os usuários dos motoboys estão cadastrados com o perfil de entregador.
-              </p>
-            </div>
-          ) : (
-            <div className="space-y-6">
-              <div>
-                <div className="flex items-center justify-between mb-3">
-                  <h3 className="text-base font-semibold text-white">
-                    Período atual
-                  </h3>
-                  <span className="text-xs text-slate-500">
-                    {billing.couriers.length} entregador{billing.couriers.length === 1 ? "" : "es"}
-                  </span>
-                </div>
-
-                <div className="overflow-x-auto rounded-xl border border-slate-800">
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="border-b border-slate-800 bg-slate-950 text-left">
-                        <th className="px-4 py-3 text-slate-500 font-medium">Entregador</th>
-                        <th className="px-4 py-3 text-slate-500 font-medium">Período</th>
-                        <th className="px-4 py-3 text-slate-500 font-medium">Entregas</th>
-                        <th className="px-4 py-3 text-slate-500 font-medium">Valor a pagar</th>
-                        <th className="px-4 py-3 text-slate-500 font-medium">Status</th>
-                        <th className="px-4 py-3 text-slate-500 font-medium">Ação</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {billing.couriers.map((courier, index) => {
-                        const courierId = String(
-                          courier?.id || courier?._id || `courier-${index}`
-                        );
-                        const cycle =
-                          billing.courier_current_cycles.find(
-                            (item) =>
-                              String(item?.courier_id) === courierId
-                          ) || null;
-                        const status = String(cycle?.status || "open").toLowerCase();
-                        const amount = Number(
-                          cycle?.total_courier ??
-                            cycle?.total_to_pay ??
-                            cycle?.value_to_pay ??
-                            cycle?.total_amount ??
-                            cycle?.amount ??
-                            0
-                        );
-                        const deliveries = Number(cycle?.total_deliveries || 0);
-                        const period =
-                          cycle?.cycle_label ||
-                          `${formatDateBR(cycle?.period_start || cycle?.start_date)} até ${formatDateBR(cycle?.period_end || cycle?.end_date)}`;
-                        const cycleId = cycle?.id || cycle?._id || null;
-                        const pendingClosedCycle =
-                          getLatestClosedCourierCycle(courierId);
-                        const pendingClosedCycleId =
-                          pendingClosedCycle?.id ||
-                          pendingClosedCycle?._id ||
-                          null;
-                        const pendingClosedAmount = Number(
-                          pendingClosedCycle?.total_courier ??
-                            pendingClosedCycle?.total_to_pay ??
-                            pendingClosedCycle?.value_to_pay ??
-                            pendingClosedCycle?.total_amount ??
-                            pendingClosedCycle?.amount ??
-                            0
-                        );
-                        const pendingClosedDeliveries = Number(
-                          pendingClosedCycle?.total_deliveries || 0
-                        );
-
-                        const visibleCourierAmount =
-                          pendingClosedCycle ? pendingClosedAmount : amount;
-                        const visibleCourierDeliveries =
-                          pendingClosedCycle ? pendingClosedDeliveries : deliveries;
-                        const visibleCourierStatus =
-                          pendingClosedCycle ? "closed" : status;
-                        const visibleCourierPeriod =
-                          pendingClosedCycle
-                            ? (
-                                pendingClosedCycle?.cycle_label ||
-                                `${formatDateBR(
-                                  pendingClosedCycle?.period_start ||
-                                    pendingClosedCycle?.start_date
-                                )} até ${formatDateBR(
-                                  pendingClosedCycle?.period_end ||
-                                    pendingClosedCycle?.end_date
-                                )}`
-                              )
-                            : period;
-
-                        return (
-                          <tr
-                            key={`courier-current-${courierId}-${index}`}
-                            className="border-b border-slate-800/70 last:border-0"
-                          >
-                            <td className="px-4 py-4">
-                              <div className="font-semibold text-white">
-                                {normalizeText(courier?.name, "Entregador")}
-                              </div>
-                              {courier?.email && (
-                                <div className="text-xs text-slate-500 mt-1">
-                                  {courier.email}
-                                </div>
-                              )}
-                            </td>
-                            <td className="px-4 py-4 text-slate-300">
-                              {visibleCourierPeriod}
-                            </td>
-                            <td className="px-4 py-4 text-slate-300 font-medium">
-                              {visibleCourierDeliveries}
-                            </td>
-                            <td className="px-4 py-4 text-emerald-400 font-bold">
-                              {formatBRL(visibleCourierAmount)}
-                            </td>
-                            <td className="px-4 py-4">
-                              <span
-                                className={`inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-medium ${getBillingStatusClass(visibleCourierStatus)}`}
-                              >
-                                {getStatusLabel(visibleCourierStatus)}
-                              </span>
-                            </td>
-                            <td className="px-4 py-4">
-                              <div className="flex flex-wrap gap-2">
-                                {visibleCourierStatus === "open" && (
-                                  <button
-                                    type="button"
-                                    onClick={() =>
-                                      setCourierCloseConfirmation({
-                                        courierId,
-                                        courierName: normalizeText(
-                                          courier?.name ||
-                                            courier?.full_name ||
-                                            courier?.email ||
-                                            "Entregador"
-                                        ),
-                                        deliveries: visibleCourierDeliveries,
-                                        amount: visibleCourierAmount,
-                                      })
-                                    }
-                                    disabled={closingCourier !== null}
-                                    className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-3 py-2 text-xs font-semibold text-white hover:bg-blue-500 disabled:opacity-50"
-                                  >
-                                    {closingCourier === courierId ? (
-                                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                                    ) : (
-                                      <Calendar className="w-3.5 h-3.5" />
-                                    )}
-                                    Fechar período
-                                  </button>
-                                )}
-
-                                {visibleCourierStatus === "closed" &&
-                                  (pendingClosedCycleId || cycleId) && (
-                                  <button
-                                    type="button"
-                                    onClick={() =>
-                                      setCourierPayConfirmation({
-                                        cycleId:
-                                          pendingClosedCycleId || cycleId,
-                                        courierName: normalizeText(
-                                          courier?.name ||
-                                            courier?.full_name ||
-                                            courier?.email ||
-                                            "Entregador"
-                                        ),
-                                        deliveries: visibleCourierDeliveries,
-                                        amount: visibleCourierAmount,
-                                      })
-                                    }
-                                    disabled={payingCycle !== null}
-                                    className="inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-3 py-2 text-xs font-semibold text-white hover:bg-emerald-500 disabled:opacity-50"
-                                  >
-                                    {payingCycle ===
-                                    String(pendingClosedCycleId || cycleId) ? (
-                                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                                    ) : (
-                                      <CircleDollarSign className="w-3.5 h-3.5" />
-                                    )}
-                                    Confirmar pagamento {formatBRL(visibleCourierAmount)}
-                                  </button>
-                                )}
-
-                                {visibleCourierStatus === "paid" && (
-                                  <span className="inline-flex items-center gap-2 text-xs text-emerald-400">
-                                    <CheckCircle2 className="w-4 h-4" />
-                                    Pagamento confirmado
-                                  </span>
-                                )}
-                              </div>
-                            </td>
-                          </tr>
-                        );
-                      })}
+            const DetailRows = ({ cycle, type }) => {
+              const details = Array.isArray(cycle?.delivery_details) ? cycle.delivery_details : [];
+              if (!details.length) return <p className="text-sm text-slate-500 py-3">Nenhuma corrida detalhada foi gravada neste ciclo.</p>;
+              return (
+                <div className="mt-3 overflow-x-auto rounded-xl border border-slate-800">
+                  <table className="w-full text-xs">
+                    <thead className="bg-slate-950 text-slate-500"><tr>
+                      <th className="px-3 py-2 text-left">Data</th><th className="px-3 py-2 text-left">Corrida</th><th className="px-3 py-2 text-left">Cliente</th><th className="px-3 py-2 text-right">Valor</th>
+                    </tr></thead>
+                    <tbody className="divide-y divide-slate-800">
+                      {details.map((d, i) => <tr key={d?.id || d?.code || i}>
+                        <td className="px-3 py-2 text-slate-400">{formatDateTimeBR(d?.completed_at || d?.created_at || d?.date)}</td>
+                        <td className="px-3 py-2 text-white font-medium">{d?.code || d?.delivery_code || d?.id || "—"}</td>
+                        <td className="px-3 py-2 text-slate-300">{normalizeText(d?.client_name || d?.customer_name || "—")}</td>
+                        <td className="px-3 py-2 text-right text-emerald-400 font-bold">{formatBRL(Number(d?.gross_price || d?.price || 0))}</td>
+                      </tr>)}
                     </tbody>
                   </table>
                 </div>
+              );
+            };
+
+            const StoreCard = ({ cycle, mode }) => {
+              const key = `store-${cycle?.id || cycle?.store_id}-${cycle?.period_start || "current"}`;
+              const open = !!expandedBillingCycles[key];
+              return <div className="rounded-2xl border border-slate-800 bg-slate-950/70 p-5">
+                <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2"><span className="text-xl">🏪</span><h4 className="text-white font-bold truncate">{storeName(cycle)}</h4></div>
+                    <p className="text-xs text-slate-500 mt-1">{cyclePeriod(cycle)}</p>
+                    <div className="flex flex-wrap gap-x-5 gap-y-2 mt-3 text-sm">
+                      <span className="text-slate-300"><b className="text-white">{Number(cycle?.total_deliveries || 0)}</b> corridas</span>
+                      <span className="text-slate-300">GiroExpress <b className="text-cyan-400">{formatBRL(platformFee(cycle))}</b></span>
+                      <span className="text-slate-300">Loja paga <b className="text-emerald-400 text-base">{formatBRL(storeGross(cycle))}</b></span>
+                    </div>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <button type="button" onClick={() => setExpandedBillingCycles((v) => ({...v, [key]: !v[key]}))} className="px-4 py-2 rounded-xl border border-slate-700 text-sm font-bold text-white hover:bg-slate-800">{open ? "Ocultar corridas" : "Ver corridas"}</button>
+                    {mode === "current" && String(cycle?.status || "open").toLowerCase() !== "closed" && <button type="button" disabled={closingStore === cycle?.store_id || Number(cycle?.total_deliveries || 0) === 0} onClick={() => closeBilling(cycle?.store_id)} className="px-4 py-2 rounded-xl bg-blue-600 text-sm font-bold text-white hover:bg-blue-500 disabled:opacity-40">{closingStore === cycle?.store_id ? "Fechando..." : "Fechar ciclo"}</button>}
+                    {mode === "current" && String(cycle?.status || "").toLowerCase() === "closed" && <button type="button" disabled={payingCycle === (cycle?.id || cycle?.pending_cycle_id)} onClick={() => payBilling(cycle?.id || cycle?.pending_cycle_id)} className="px-4 py-2 rounded-xl bg-emerald-600 text-sm font-bold text-white hover:bg-emerald-500 disabled:opacity-40">{payingCycle === (cycle?.id || cycle?.pending_cycle_id) ? "Confirmando..." : "Confirmar pagamento da loja"}</button>}
+                    {mode === "closed" && <button type="button" disabled={payingCycle === cycle?.id} onClick={() => payBilling(cycle?.id)} className="px-4 py-2 rounded-xl bg-emerald-600 text-sm font-bold text-white hover:bg-emerald-500 disabled:opacity-40">{payingCycle === cycle?.id ? "Confirmando..." : "Confirmar recebimento"}</button>}
+                    {mode === "paid" && <span className="px-3 py-2 rounded-xl bg-emerald-500/10 text-emerald-400 text-sm font-bold">✓ Pago</span>}
+                  </div>
+                </div>
+                {mode === "current" && String(cycle?.status || "").toLowerCase() === "closed" && <div className="mt-3 rounded-xl border border-amber-500/20 bg-amber-500/10 px-3 py-2 text-xs font-bold text-amber-300">Ciclo fechado • valores mantidos até a confirmação do pagamento</div>}
+                {mode !== "current" && <div className="mt-3 text-xs text-slate-500">Fechado: {formatDateTimeBR(cycle?.closed_at)}{cycle?.paid_at ? ` • Pago: ${formatDateTimeBR(cycle?.paid_at)}` : " • Aguardando confirmação"}</div>}
+                {open && <DetailRows cycle={cycle} type="store" />}
+              </div>;
+            };
+
+            const CourierCard = ({ cycle, mode }) => {
+              const key = `courier-${cycle?.id || cycle?.courier_id}-${cycle?.period_start || "current"}`;
+              const open = !!expandedBillingCycles[key];
+              return <div className="rounded-2xl border border-slate-800 bg-slate-950/70 p-5">
+                <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2"><span className="text-xl">🛵</span><h4 className="text-white font-bold truncate">{courierName(cycle)}</h4></div>
+                    <p className="text-xs text-slate-500 mt-1">{cyclePeriod(cycle)}</p>
+                    <div className="flex flex-wrap gap-x-5 gap-y-2 mt-3 text-sm">
+                      <span className="text-slate-300"><b className="text-white">{Number(cycle?.total_deliveries || 0)}</b> corridas</span>
+                      <span className="text-slate-300">Bruto <b className="text-white">{formatBRL(courierGross(cycle))}</b></span>
+                      <span className="text-slate-300">GiroExpress <b className="text-cyan-400">{formatBRL(platformFee(cycle))}</b></span>
+                      <span className="text-slate-300">A pagar <b className="text-emerald-400 text-base">{formatBRL(courierNet(cycle))}</b></span>
+                    </div>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <button type="button" onClick={() => setExpandedBillingCycles((v) => ({...v, [key]: !v[key]}))} className="px-4 py-2 rounded-xl border border-slate-700 text-sm font-bold text-white hover:bg-slate-800">{open ? "Ocultar corridas" : "Ver corridas"}</button>
+                    {mode === "current" && String(cycle?.status || "open").toLowerCase() !== "closed" && <button type="button" disabled={closingCourier === cycle?.courier_id || Number(cycle?.total_deliveries || 0) === 0} onClick={() => closeCourierBilling(cycle?.courier_id)} className="px-4 py-2 rounded-xl bg-blue-600 text-sm font-bold text-white hover:bg-blue-500 disabled:opacity-40">{closingCourier === cycle?.courier_id ? "Fechando..." : "Fechar ciclo"}</button>}
+                    {mode === "current" && String(cycle?.status || "").toLowerCase() === "closed" && <button type="button" disabled={payingCycle === cycle?.id} onClick={() => payCourierBilling(cycle?.id)} className="px-4 py-2 rounded-xl bg-emerald-600 text-sm font-bold text-white hover:bg-emerald-500 disabled:opacity-40">{payingCycle === cycle?.id ? "Confirmando..." : "Confirmar que entregador recebeu"}</button>}
+                    {mode === "closed" && <button type="button" disabled={payingCycle === cycle?.id} onClick={() => payCourierBilling(cycle?.id)} className="px-4 py-2 rounded-xl bg-emerald-600 text-sm font-bold text-white hover:bg-emerald-500 disabled:opacity-40">{payingCycle === cycle?.id ? "Confirmando..." : "Confirmar pagamento"}</button>}
+                    {mode === "paid" && <span className="px-3 py-2 rounded-xl bg-emerald-500/10 text-emerald-400 text-sm font-bold">✓ Pago</span>}
+                  </div>
+                </div>
+                {mode === "current" && String(cycle?.status || "").toLowerCase() === "closed" && <div className="mt-3 rounded-xl border border-amber-500/20 bg-amber-500/10 px-3 py-2 text-xs font-bold text-amber-300">Ciclo fechado • valores mantidos até a confirmação do pagamento</div>}
+                {mode !== "current" && <div className="mt-3 text-xs text-slate-500">Fechado: {formatDateTimeBR(cycle?.closed_at)}{cycle?.paid_at ? ` • Pago: ${formatDateTimeBR(cycle?.paid_at)}` : " • Aguardando confirmação"}</div>}
+                {open && <DetailRows cycle={cycle} type="courier" />}
+              </div>;
+            };
+
+            const activeStores = billingView === "current" ? storeCurrent : billingView === "pending" ? storeClosed : storePaid;
+            const activeCouriers = billingView === "current" ? courierCurrent : billingView === "pending" ? courierClosed : courierPaid;
+            const mode = billingView === "current" ? "current" : billingView === "pending" ? "closed" : "paid";
+
+            return <>
+              <div className="rounded-3xl border border-slate-800 bg-gradient-to-br from-slate-900 to-slate-950 p-5 md:p-6">
+                <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+                  <div><p className="text-xs font-bold uppercase tracking-[0.22em] text-cyan-400">GiroExpress Financeiro</p><h2 className="text-2xl font-black text-white mt-1">Controle de ciclos</h2><p className="text-sm text-slate-400 mt-1">Loja paga o valor integral. GiroExpress fica com R$ 1,00 por corrida. O restante é do entregador.</p></div>
+                  <button type="button" onClick={() => loadBilling(true)} disabled={billingLoading} className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-700 bg-slate-900 px-4 py-2 text-sm text-white hover:bg-slate-800 disabled:opacity-50"><RefreshCw className={`w-4 h-4 ${billingLoading ? "animate-spin" : ""}`} />Atualizar</button>
+                </div>
+                <div className="grid grid-cols-2 xl:grid-cols-4 gap-3 mt-6">
+                  <div className="rounded-2xl border border-slate-800 bg-slate-950/80 p-4"><p className="text-xs text-slate-500">Corridas do ciclo</p><p className="text-2xl font-black text-white mt-1">{currentDeliveries}</p></div>
+                  <div className="rounded-2xl border border-slate-800 bg-slate-950/80 p-4"><p className="text-xs text-slate-500">Lojas a receber</p><p className="text-2xl font-black text-emerald-400 mt-1">{formatBRL(currentStores)}</p></div>
+                  <div className="rounded-2xl border border-slate-800 bg-slate-950/80 p-4"><p className="text-xs text-slate-500">Entregadores a pagar</p><p className="text-2xl font-black text-amber-300 mt-1">{formatBRL(currentCouriers)}</p></div>
+                  <div className="rounded-2xl border border-cyan-500/20 bg-cyan-500/5 p-4"><p className="text-xs text-cyan-300">GiroExpress</p><p className="text-2xl font-black text-cyan-400 mt-1">{formatBRL(currentGiro)}</p></div>
+                </div>
               </div>
 
-              
-            </div>
-          )}
-        
-          <div className="mt-6 rounded-2xl border border-emerald-500/20 bg-slate-950/40 overflow-hidden">
-                {(() => {
-                  const paidCycles = (billing.courier_history || [])
-                    .filter((cycle) => String(cycle?.status || "").toLowerCase() === "paid")
-                    .sort((a, b) =>
-                      String(b?.paid_at || b?.period_end || "").localeCompare(
-                        String(a?.paid_at || a?.period_end || "")
-                      )
-                    );
-                  const lastPaid = paidCycles[0];
-
-                  const courierName = (cycle) => {
-                    const courier =
-                      (billing.couriers || []).find(
-                        (item) => String(item?.id || item?._id || "") === String(cycle?.courier_id || "")
-                      ) ||
-                      couriers.find(
-                        (item) => String(item?.id || item?._id || "") === String(cycle?.courier_id || "")
-                      );
-                    return normalizeText(
-                      cycle?.courier_name || courier?.name || courier?.full_name || courier?.email || "Entregador"
-                    );
-                  };
-
-                  const amount = (cycle) =>
-                    Number(cycle?.total_to_pay ?? cycle?.total_courier ?? cycle?.net_courier ?? 0);
-
-                  return (
-                    <>
-                      <div className="px-5 py-4">
-                        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-                          <div>
-                            <h3 className="font-bold text-white flex items-center gap-2">
-                              <CheckCircle2 className="w-5 h-5 text-emerald-400" />
-                              Último pagamento confirmado
-                            </h3>
-                            {lastPaid ? (
-                              <div className="mt-3">
-                                <p className="font-semibold text-white">{courierName(lastPaid)}</p>
-                                <p className="text-sm text-slate-400 mt-1">
-                                  {formatDateBR(lastPaid.period_start)} até {formatDateBR(lastPaid.period_end)}
-                                </p>
-                                <p className="text-2xl font-black text-emerald-400 mt-1">
-                                  {formatBRL(amount(lastPaid))}
-                                </p>
-                                <p className="text-xs text-slate-500 mt-1">
-                                  {Number(lastPaid.total_deliveries || 0)} corridas • {formatDateTimeBR(lastPaid.paid_at)}
-                                </p>
-                              </div>
-                            ) : (
-                              <p className="text-sm text-slate-400 mt-3">Nenhum pagamento confirmado até o momento.</p>
-                            )}
-                          </div>
-                          <button
-                            type="button"
-                            onClick={() => setShowAllConfirmedPayments((value) => !value)}
-                            className="px-4 py-2 rounded-xl border border-slate-700 text-sm font-bold text-white hover:bg-slate-800"
-                          >
-                            {showAllConfirmedPayments ? "Ocultar ciclos" : "Ver todos os ciclos"}
-                          </button>
-                        </div>
-                      </div>
-
-                      {showAllConfirmedPayments && (
-                        <div className="border-t border-slate-800 overflow-x-auto">
-                          {paidCycles.length === 0 ? (
-                            <div className="p-5 text-sm text-slate-400">Nenhum pagamento confirmado.</div>
-                          ) : (
-                            <table className="w-full text-sm">
-                              <thead className="bg-slate-950/70 text-slate-500">
-                                <tr>
-                                  <th className="px-4 py-3 text-left">Entregador</th>
-                                  <th className="px-4 py-3 text-left">Ciclo</th>
-                                  <th className="px-4 py-3 text-left">Corridas</th>
-                                  <th className="px-4 py-3 text-left">Valor pago</th>
-                                  <th className="px-4 py-3 text-left">Confirmado em</th>
-                                  <th className="px-4 py-3 text-left">Status</th>
-                                </tr>
-                              </thead>
-                              <tbody className="divide-y divide-slate-800">
-                                {paidCycles.map((cycle) => (
-                                  <tr key={cycle?.id || `${cycle?.courier_id}-${cycle?.period_start}-${cycle?.period_end}`}>
-                                    <td className="px-4 py-4 font-semibold text-white">{courierName(cycle)}</td>
-                                    <td className="px-4 py-4 text-slate-300">
-                                      {formatDateBR(cycle.period_start)} até {formatDateBR(cycle.period_end)}
-                                    </td>
-                                    <td className="px-4 py-4 text-slate-300">{Number(cycle.total_deliveries || 0)}</td>
-                                    <td className="px-4 py-4 text-emerald-400 font-bold">{formatBRL(amount(cycle))}</td>
-                                    <td className="px-4 py-4 text-slate-300">{formatDateTimeBR(cycle.paid_at)}</td>
-                                    <td className="px-4 py-4 text-emerald-400">Pago</td>
-                                  </tr>
-                                ))}
-                              </tbody>
-                            </table>
-                          )}
-                        </div>
-                      )}
-                    </>
-                  );
-                })()}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 rounded-2xl border border-slate-800 bg-slate-900 p-2">
+                {[{id:"current",label:"Ciclo atual",count:storeCurrent.length+courierCurrent.length},{id:"pending",label:"Aguardando pagamento",count:storeClosed.length+courierClosed.length},{id:"history",label:"Histórico",count:storePaid.length+courierPaid.length}].map((tab) => <button key={tab.id} type="button" onClick={() => setBillingView(tab.id)} className={`rounded-xl px-4 py-3 text-sm font-bold transition ${billingView===tab.id ? "bg-blue-600 text-white shadow-lg" : "text-slate-400 hover:bg-slate-800 hover:text-white"}`}>{tab.label}<span className="ml-2 rounded-full bg-black/20 px-2 py-0.5 text-xs">{tab.count}</span></button>)}
               </div>
 
-            </section>
+              <div className="grid grid-cols-1 2xl:grid-cols-2 gap-5">
+                <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5"><div className="flex items-center justify-between mb-4"><div><h3 className="text-lg font-black text-white">🏪 Lojas</h3><p className="text-xs text-slate-500">{billingView === "current" ? "Valores do ciclo em andamento" : billingView === "pending" ? "Ciclos fechados aguardando recebimento" : "Ciclos pagos e preservados"}</p></div><span className="text-xs font-bold text-slate-400">{activeStores.length} ciclo(s)</span></div><div className="space-y-3">{activeStores.length ? activeStores.map((c,i)=><StoreCard key={c?.id || `${c?.store_id}-${i}`} cycle={c} mode={mode}/>) : <div className="rounded-xl border border-dashed border-slate-700 p-8 text-center text-sm text-slate-500">Nenhum ciclo de loja nesta etapa.</div>}</div></div>
+                <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5"><div className="flex items-center justify-between mb-4"><div><h3 className="text-lg font-black text-white">🛵 Entregadores</h3><p className="text-xs text-slate-500">{billingView === "current" ? "Ganhos do ciclo em andamento" : billingView === "pending" ? "Ciclos fechados aguardando pagamento" : "Pagamentos confirmados e preservados"}</p></div><span className="text-xs font-bold text-slate-400">{activeCouriers.length} ciclo(s)</span></div><div className="space-y-3">{activeCouriers.length ? activeCouriers.map((c,i)=><CourierCard key={c?.id || `${c?.courier_id}-${i}`} cycle={c} mode={mode}/>) : <div className="rounded-xl border border-dashed border-slate-700 p-8 text-center text-sm text-slate-500">Nenhum ciclo de entregador nesta etapa.</div>}</div></div>
+              </div>
+            </>;
+          })()}
+        </section>
 
         {periodQueryVisible && (
           <section className="bg-slate-900 border border-slate-800 rounded-2xl p-6">
@@ -4140,7 +3466,7 @@ export default function AdminDashboard() {
                           </h2>
           
                           <p className="text-sm text-slate-400 mt-1">
-                            Consulte os dados bancários e PIX cadastrados pelos motoboys.
+                            Consulte o cadastro completo, endereço, veículo e dados de pagamento dos entregadores.
                           </p>
                         </div>
           
@@ -4332,7 +3658,7 @@ export default function AdminDashboard() {
                                         className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-3 py-2 text-xs font-semibold text-white hover:bg-blue-500"
                                       >
                                         <Eye className="w-3.5 h-3.5" />
-                                        Ver conta
+                                        Ver cadastro
                                       </button>
           
                                     </td>
@@ -4789,6 +4115,18 @@ export default function AdminDashboard() {
                                     Reativar
                                   </button>
                                 )}
+
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    setSelectedCourier(user)
+                                  }
+                                  className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-3 py-2 text-xs font-semibold text-white hover:bg-blue-500"
+                                  title="Ver cadastro completo"
+                                >
+                                  <Eye className="w-3.5 h-3.5" />
+                                  Ver cadastro
+                                </button>
 
                                 <button
                                   type="button"
@@ -5259,275 +4597,170 @@ export default function AdminDashboard() {
         <div
           className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 backdrop-blur-sm p-4"
           onMouseDown={(event) => {
-            if (
-              event.target === event.currentTarget
-            ) {
+            if (event.target === event.currentTarget) {
               setSelectedCourier(null);
             }
           }}
         >
-
-          <div className="w-full max-w-2xl max-h-[90vh] overflow-y-auto rounded-2xl border border-slate-700 bg-slate-900 shadow-2xl">
-
+          <div className="w-full max-w-4xl max-h-[90vh] overflow-y-auto rounded-2xl border border-slate-700 bg-slate-900 shadow-2xl">
             <div className="sticky top-0 z-10 flex items-center justify-between border-b border-slate-800 bg-slate-900 px-6 py-5">
-
               <div className="flex items-center gap-3">
-
-                <div className="w-11 h-11 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center">
-                  <CreditCard className="w-6 h-6 text-emerald-400" />
+                <div className="w-11 h-11 rounded-xl bg-blue-500/10 border border-blue-500/20 flex items-center justify-center">
+                  {String(selectedCourier.role || "").toLowerCase() === "store" ? (
+                    <Store className="w-6 h-6 text-blue-400" />
+                  ) : (
+                    <Users className="w-6 h-6 text-blue-400" />
+                  )}
                 </div>
-
                 <div>
-
                   <h2 className="text-lg font-bold text-white">
-                    Conta do entregador
+                    Cadastro {String(selectedCourier.role || "").toLowerCase() === "store" ? "da loja" : "do entregador"}
                   </h2>
-
                   <p className="text-sm text-slate-400">
-                    {normalizeText(
-                      selectedCourier.name,
-                      "Entregador"
-                    )}
+                    {normalizeText(selectedCourier.name, "Usuário")}
                   </p>
-
                 </div>
-
               </div>
 
               <button
                 type="button"
-                onClick={() =>
-                  setSelectedCourier(null)
-                }
+                onClick={() => setSelectedCourier(null)}
                 className="w-9 h-9 rounded-lg border border-slate-700 bg-slate-950 text-slate-400 hover:text-white hover:bg-slate-800 flex items-center justify-center"
                 aria-label="Fechar"
               >
                 <X className="w-5 h-5" />
               </button>
-
             </div>
 
-            <div className="p-6">
+            <div className="p-6 space-y-6">
+              <section>
+                <h3 className="text-sm font-bold text-white mb-3">Dados cadastrais</h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {[
+                    [String(selectedCourier.role || "").toLowerCase() === "store" ? "Nome da loja" : "Nome completo", selectedCourier.name],
+                    ["E-mail", selectedCourier.email],
+                    ["Telefone", selectedCourier.phone],
+                    ["Perfil", getRoleLabel(selectedCourier.role)],
+                    ["Status", getStatusLabel(selectedCourier.status)],
+                    ["Data do cadastro", formatDateTimeBR(selectedCourier.created_at)],
+                  ].map(([label, value], index) => (
+                    <div key={`cad-${index}`} className="rounded-xl border border-slate-800 bg-slate-950 p-4">
+                      <p className="text-xs text-slate-500">{label}</p>
+                      <p className="text-sm font-medium text-white mt-1 break-words">{normalizeText(value, "-")}</p>
+                    </div>
+                  ))}
+                </div>
+              </section>
 
-              <div className="mb-6 rounded-xl border border-slate-800 bg-slate-950 p-4">
-
-                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-
-                  <div>
-
-                    <p className="text-xs text-slate-500">
-                      Entregador
-                    </p>
-
-                    <p className="text-base font-semibold text-white mt-1">
-                      {normalizeText(
-                        selectedCourier.name,
-                        "Entregador"
-                      )}
-                    </p>
-
-                    {selectedCourier.phone && (
-                      <p className="text-xs text-slate-500 mt-1">
-                        {normalizeText(
-                          selectedCourier.phone
-                        )}
-                      </p>
-                    )}
-
-                  </div>
-
-                  <span
-                    className={`inline-flex self-start sm:self-auto rounded-full border px-3 py-1.5 text-xs font-medium ${getUserStatusClass(
-                      selectedCourier.status
-                    )}`}
-                  >
-                    {getStatusLabel(
-                      selectedCourier.status
-                    )}
-                  </span>
-
+              <section>
+                <h3 className="text-sm font-bold text-white mb-3">Endereço</h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                  {[
+                    ["CEP", selectedCourier.cep],
+                    ["Rua / Avenida", selectedCourier.street],
+                    ["Número", selectedCourier.number],
+                    ["Complemento", selectedCourier.complement],
+                    ["Bairro", selectedCourier.neighborhood],
+                    ["Cidade", selectedCourier.city],
+                    ["UF", selectedCourier.state],
+                  ].map(([label, value], index) => (
+                    <div key={`end-${index}`} className="rounded-xl border border-slate-800 bg-slate-950 p-4">
+                      <p className="text-xs text-slate-500">{label}</p>
+                      <p className="text-sm font-medium text-white mt-1 break-words">{normalizeText(value, "-")}</p>
+                    </div>
+                  ))}
                 </div>
 
-              </div>
+                {selectedCourier.address && (
+                  <div className="mt-4 rounded-xl border border-slate-800 bg-slate-950 p-4">
+                    <p className="text-xs text-slate-500">Endereço completo / cadastro antigo</p>
+                    <p className="text-sm font-medium text-white mt-1 break-words">
+                      {normalizeText(selectedCourier.address, "-")}
+                    </p>
+                  </div>
+                )}
+              </section>
 
-              {hasPaymentAccount(
-                selectedCourier
-              ) ? (
-                <>
-
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-
-                    <div className="rounded-xl border border-slate-800 bg-slate-950 p-4">
-                      <p className="text-xs text-slate-500">
-                        Titular da conta
-                      </p>
-
-                      <p className="text-sm font-medium text-white mt-1 break-words">
-                        {normalizeText(
-                          selectedCourier
-                            ?.payment_account
-                            ?.holder_name,
-                          "-"
-                        )}
-                      </p>
-                    </div>
-
-                    <div className="rounded-xl border border-slate-800 bg-slate-950 p-4">
-                      <p className="text-xs text-slate-500">
-                        CPF / CNPJ
-                      </p>
-
-                      <p className="text-sm font-medium text-white mt-1 break-words">
-                        {normalizeText(
-                          selectedCourier
-                            ?.payment_account
-                            ?.document,
-                          "-"
-                        )}
-                      </p>
-                    </div>
-
-                    <div className="rounded-xl border border-slate-800 bg-slate-950 p-4">
-                      <p className="text-xs text-slate-500">
-                        Banco
-                      </p>
-
-                      <p className="text-sm font-medium text-white mt-1 break-words">
-                        {normalizeText(
-                          selectedCourier
-                            ?.payment_account
-                            ?.bank,
-                          "-"
-                        )}
-                      </p>
-                    </div>
-
-                    <div className="rounded-xl border border-slate-800 bg-slate-950 p-4">
-                      <p className="text-xs text-slate-500">
-                        Agência
-                      </p>
-
-                      <p className="text-sm font-medium text-white mt-1 break-words">
-                        {normalizeText(
-                          selectedCourier
-                            ?.payment_account
-                            ?.agency,
-                          "-"
-                        )}
-                      </p>
-                    </div>
-
-                    <div className="rounded-xl border border-slate-800 bg-slate-950 p-4">
-                      <p className="text-xs text-slate-500">
-                        Número da conta
-                      </p>
-
-                      <p className="text-sm font-medium text-white mt-1 break-words">
-                        {normalizeText(
-                          selectedCourier
-                            ?.payment_account
-                            ?.account,
-                          "-"
-                        )}
-                      </p>
-                    </div>
-
-                    <div className="rounded-xl border border-slate-800 bg-slate-950 p-4">
-                      <p className="text-xs text-slate-500">
-                        Tipo da conta
-                      </p>
-
-                      <p className="text-sm font-medium text-white mt-1">
-                        {getAccountTypeLabel(
-                          selectedCourier
-                            ?.payment_account
-                            ?.account_type
-                        )}
-                      </p>
-                    </div>
-
-                    <div className="rounded-xl border border-slate-800 bg-slate-950 p-4">
-                      <p className="text-xs text-slate-500">
-                        Tipo da chave PIX
-                      </p>
-
-                      <p className="text-sm font-medium text-white mt-1">
-                        {getPixTypeLabel(
-                          selectedCourier
-                            ?.payment_account
-                            ?.pix_key_type
-                        )}
-                      </p>
-                    </div>
-
-                    <div className="rounded-xl border border-slate-800 bg-slate-950 p-4">
-                      <p className="text-xs text-slate-500">
-                        Chave PIX
-                      </p>
-
-                      <p className="text-sm font-medium text-emerald-400 mt-1 break-all">
-                        {normalizeText(
-                          selectedCourier
-                            ?.payment_account
-                            ?.pix_key,
-                          "-"
-                        )}
-                      </p>
-                    </div>
-
+              {String(selectedCourier.role || "").toLowerCase() !== "store" && (
+                <section>
+                  <h3 className="text-sm font-bold text-white mb-3">Veículo</h3>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    {[
+                      ["Tipo", selectedCourier.vehicle_type],
+                      ["Marca / Modelo", selectedCourier.vehicle_model],
+                      ["Placa", selectedCourier.vehicle_plate],
+                    ].map(([label, value], index) => (
+                      <div key={`veic-${index}`} className="rounded-xl border border-slate-800 bg-slate-950 p-4">
+                        <p className="text-xs text-slate-500">{label}</p>
+                        <p className="text-sm font-medium text-white mt-1 break-words">{normalizeText(value, "-")}</p>
+                      </div>
+                    ))}
                   </div>
 
-                  {selectedCourier
-                    ?.payment_account
-                    ?.updated_at && (
-                    <div className="mt-5 flex items-center gap-2 text-xs text-slate-500">
-
-                      <Clock className="w-3.5 h-3.5" />
-
-                      Última atualização:{" "}
-                      {formatDateTimeBR(
-                        selectedCourier
-                          .payment_account
-                          .updated_at
-                      )}
-
+                  {selectedCourier.vehicle && (
+                    <div className="mt-4 rounded-xl border border-slate-800 bg-slate-950 p-4">
+                      <p className="text-xs text-slate-500">Veículo / cadastro antigo</p>
+                      <p className="text-sm font-medium text-white mt-1 break-words">
+                        {normalizeText(selectedCourier.vehicle, "-")}
+                      </p>
                     </div>
                   )}
-
-                </>
-              ) : (
-                <div className="rounded-xl border border-dashed border-amber-500/30 bg-amber-500/5 p-8 text-center">
-
-                  <CreditCard className="w-9 h-9 mx-auto text-amber-400 mb-3" />
-
-                  <p className="text-white font-medium">
-                    Conta de recebimento não cadastrada
-                  </p>
-
-                  <p className="text-sm text-slate-500 mt-2">
-                    Este entregador ainda não informou os dados bancários ou a chave PIX.
-                  </p>
-
-                </div>
+                </section>
               )}
 
+              <section>
+                <div className="flex items-center gap-2 mb-3">
+                  <CreditCard className="w-4 h-4 text-emerald-400" />
+                  <h3 className="text-sm font-bold text-white">Conta / PIX</h3>
+                </div>
+
+                {hasPaymentAccount(selectedCourier) ? (
+                  <>
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                      {[
+                        ["Titular da conta", selectedCourier?.payment_account?.holder_name],
+                        ["CPF / CNPJ", selectedCourier?.payment_account?.document],
+                        ["Banco", selectedCourier?.payment_account?.bank],
+                        ["Agência", selectedCourier?.payment_account?.agency],
+                        ["Número da conta", selectedCourier?.payment_account?.account],
+                        ["Tipo da conta", getAccountTypeLabel(selectedCourier?.payment_account?.account_type)],
+                        ["Tipo da chave PIX", getPixTypeLabel(selectedCourier?.payment_account?.pix_key_type)],
+                        ["Chave PIX", selectedCourier?.payment_account?.pix_key],
+                      ].map(([label, value], index) => (
+                        <div key={`pix-${index}`} className="rounded-xl border border-slate-800 bg-slate-950 p-4">
+                          <p className="text-xs text-slate-500">{label}</p>
+                          <p className="text-sm font-medium text-white mt-1 break-all">{normalizeText(value, "-")}</p>
+                        </div>
+                      ))}
+                    </div>
+
+                    {selectedCourier?.payment_account?.updated_at && (
+                      <div className="mt-4 flex items-center gap-2 text-xs text-slate-500">
+                        <Clock className="w-3.5 h-3.5" />
+                        Última atualização: {formatDateTimeBR(selectedCourier.payment_account.updated_at)}
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  <div className="rounded-xl border border-dashed border-amber-500/30 bg-amber-500/5 p-6 text-center">
+                    <CreditCard className="w-8 h-8 mx-auto text-amber-400 mb-2" />
+                    <p className="text-white font-medium">Conta de pagamento não cadastrada</p>
+                    <p className="text-sm text-slate-500 mt-1">Este usuário ainda não informou os dados bancários ou PIX.</p>
+                  </div>
+                )}
+              </section>
             </div>
 
             <div className="flex justify-end border-t border-slate-800 bg-slate-950 px-6 py-4">
-
               <button
                 type="button"
-                onClick={() =>
-                  setSelectedCourier(null)
-                }
+                onClick={() => setSelectedCourier(null)}
                 className="inline-flex items-center gap-2 rounded-xl border border-slate-700 bg-slate-900 px-4 py-2.5 text-sm font-semibold text-slate-200 hover:bg-slate-800"
               >
                 <X className="w-4 h-4" />
                 Fechar
               </button>
-
             </div>
-
           </div>
         </div>
       )}
