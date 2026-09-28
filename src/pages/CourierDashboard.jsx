@@ -38,6 +38,8 @@ import {
   CreditCard,
   Save,
   X,
+  Bot,
+  Send,
 } from "lucide-react";
 
 const MAX_ACTIVE_DELIVERIES = 8;
@@ -391,6 +393,96 @@ export default function CourierDashboard() {
       pix_key_type: "cpf",
       pix_key: "",
     });
+
+  /* ============================================================
+   * ASSISTENTE GIROEXPRESS — GEMINI
+   * ============================================================ */
+
+  const [showAiAssistant, setShowAiAssistant] = useState(false);
+  const [aiMessage, setAiMessage] = useState("");
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiMessages, setAiMessages] = useState([
+    {
+      role: "assistant",
+      text: "Olá! Sou o Assistente GiroExpress. Posso consultar seu ciclo, ganhos e suas corridas.",
+    },
+  ]);
+
+  const aiMessagesEndRef = useRef(null);
+
+  useEffect(() => {
+    if (!showAiAssistant) {
+      return;
+    }
+
+    const timer = setTimeout(() => {
+      aiMessagesEndRef.current?.scrollIntoView({
+        behavior: "smooth",
+        block: "end",
+      });
+    }, 50);
+
+    return () => clearTimeout(timer);
+  }, [aiMessages, aiLoading, showAiAssistant]);
+
+  const askAiAssistant = async (question = null) => {
+    const message = String(question ?? aiMessage).trim();
+
+    if (!message || aiLoading) {
+      return;
+    }
+
+    setAiMessages((previous) => [
+      ...previous,
+      { role: "user", text: message },
+    ]);
+    setAiMessage("");
+    setAiLoading(true);
+
+    try {
+      const { data } = await api.post("/ai/chat", {
+        message,
+      });
+
+      const answer =
+        data?.answer ||
+        "Não consegui obter uma resposta agora.";
+
+      setAiMessages((previous) => [
+        ...previous,
+        { role: "assistant", text: answer },
+      ]);
+    } catch (error) {
+      const messageError = apiError(error);
+      const normalizedError = String(messageError || "").toLowerCase();
+
+      const isAiUnavailable =
+        normalizedError.includes("gemini") ||
+        normalizedError.includes("limite de uso") ||
+        normalizedError.includes("quota") ||
+        normalizedError.includes("429") ||
+        normalizedError.includes("502") ||
+        normalizedError.includes("503");
+
+      const friendlyMessage = isAiUnavailable
+        ? "No momento estou disponível para consultar informações do GiroExpress. Você pode perguntar sobre seus ganhos, ciclo atual, quantidade de entregas ou corridas em andamento."
+        : `Não consegui concluir essa consulta agora. ${messageError}`;
+
+      setAiMessages((previous) => [
+        ...previous,
+        {
+          role: "assistant",
+          text: friendlyMessage,
+        },
+      ]);
+
+      if (!isAiUnavailable) {
+        toast.error(messageError);
+      }
+    } finally {
+      setAiLoading(false);
+    }
+  };
 
   /* ============================================================
    * REFS
@@ -2324,6 +2416,18 @@ export default function CourierDashboard() {
         <div className="flex items-center space-x-2">
           <button
             type="button"
+            onClick={() => setShowAiAssistant(true)}
+            className="flex items-center gap-2 px-3 py-2 rounded-xl border border-violet-500/30 bg-violet-500/10 hover:bg-violet-500/20 text-violet-300 transition"
+            title="Assistente GiroExpress"
+          >
+            <Bot className="w-4 h-4" />
+            <span className="text-xs font-bold hidden sm:inline">
+              Assistente IA
+            </span>
+          </button>
+
+          <button
+            type="button"
             onClick={openAccount}
             className="flex items-center gap-2 px-3 py-2 rounded-xl border border-emerald-500/30 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 transition"
             title="Conta e PIX"
@@ -2567,12 +2671,11 @@ export default function CourierDashboard() {
                   }
                   onComplete={
                     [
-                      "accepted",
                       "in_transit",
                       "picked_up",
                       "in_progress",
                     ].includes(
-                      d.status
+                      String(d.status || "").toLowerCase()
                     )
                       ? () =>
                           act(
@@ -3173,6 +3276,116 @@ export default function CourierDashboard() {
         }
         onCreated={load}
       />
+
+      {showAiAssistant && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 p-4">
+          <div className="w-full max-w-xl overflow-hidden rounded-3xl border border-violet-500/30 bg-slate-950 shadow-2xl">
+            <div className="flex items-center justify-between border-b border-slate-800 px-5 py-4">
+              <div className="flex items-center gap-3">
+                <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-violet-500/15 text-violet-300">
+                  <Bot className="h-5 w-5" />
+                </div>
+                <div>
+                  <h2 className="font-black text-white">Assistente GiroExpress</h2>
+                  <p className="text-xs text-slate-400">
+                    Assistente inteligente do GiroExpress
+                  </p>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setShowAiAssistant(false)}
+                className="rounded-xl p-2 text-slate-400 transition hover:bg-slate-800 hover:text-white"
+                title="Fechar"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="flex flex-wrap gap-2 border-b border-slate-800 px-5 py-3">
+              {[
+                "Quanto ganhei neste ciclo?",
+                "Quantas entregas fiz neste ciclo?",
+                "Tenho alguma corrida ativa?",
+              ].map((question) => (
+                <button
+                  key={question}
+                  type="button"
+                  disabled={aiLoading}
+                  onClick={() => askAiAssistant(question)}
+                  className="rounded-xl border border-slate-700 bg-slate-900 px-3 py-2 text-xs font-bold text-slate-300 transition hover:border-violet-500/50 hover:text-violet-300 disabled:opacity-50"
+                >
+                  {question}
+                </button>
+              ))}
+            </div>
+
+            <div className="h-[360px] space-y-3 overflow-y-auto p-5">
+              {aiMessages.map((message, index) => (
+                <div
+                  key={`${message.role}-${index}`}
+                  className={`flex ${
+                    message.role === "user"
+                      ? "justify-end"
+                      : "justify-start"
+                  }`}
+                >
+                  <div
+                    className={`max-w-[85%] rounded-2xl px-4 py-3 text-sm leading-relaxed ${
+                      message.role === "user"
+                        ? "bg-violet-600 text-white"
+                        : "border border-slate-800 bg-slate-900 text-slate-200"
+                    }`}
+                  >
+                    {message.text}
+                  </div>
+                </div>
+              ))}
+
+              {aiLoading && (
+                <div className="flex justify-start">
+                  <div className="flex items-center gap-2 rounded-2xl border border-slate-800 bg-slate-900 px-4 py-3 text-sm text-slate-400">
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    Consultando o GiroExpress...
+                  </div>
+                </div>
+              )}
+
+              <div ref={aiMessagesEndRef} aria-hidden="true" />
+            </div>
+
+            <form
+              className="flex gap-2 border-t border-slate-800 p-4"
+              onSubmit={(event) => {
+                event.preventDefault();
+                askAiAssistant();
+              }}
+            >
+              <input
+                value={aiMessage}
+                onChange={(event) => setAiMessage(event.target.value)}
+                placeholder="Pergunte sobre seus ganhos ou corridas..."
+                className="min-w-0 flex-1 rounded-2xl border border-slate-700 bg-slate-900 px-4 py-3 text-sm text-white outline-none transition placeholder:text-slate-500 focus:border-violet-500"
+              />
+
+              <button
+                type="submit"
+                disabled={aiLoading || !aiMessage.trim()}
+                className="flex items-center justify-center rounded-2xl bg-violet-600 px-4 text-white transition hover:bg-violet-500 disabled:cursor-not-allowed disabled:opacity-50"
+                title="Enviar"
+              >
+                {aiLoading ? (
+                  <Loader2 className="h-5 w-5 animate-spin" />
+                ) : (
+                  <Send className="h-5 w-5" />
+                )}
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
+
     </Layout>
   );
 }
@@ -3344,21 +3557,6 @@ function IncomingDeliveryModal({
       .replace(/^#+/, "")
       .trim();
 
-  const dropoffAddress =
-    String(
-      delivery?.dropoff_address ||
-        "Não informado"
-    )
-      .replace(/^#+/, "")
-      .trim();
-
-  const clientName =
-    String(
-      delivery?.client_name ||
-        "Cliente"
-    )
-      .replace(/^#+/, "")
-      .trim();
 
   return (
     <div
@@ -3414,7 +3612,7 @@ function IncomingDeliveryModal({
           <div className="space-y-3">
             <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4">
               <p className="text-xs text-rose-400 font-bold mb-1">
-                RETIRADA
+                RETIRADA • {storeName}
               </p>
 
               <p className="text-sm text-white font-medium">
@@ -3422,15 +3620,9 @@ function IncomingDeliveryModal({
               </p>
             </div>
 
-            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4">
-              <p className="text-xs text-emerald-400 font-bold mb-1">
-                ENTREGA • {clientName}
-              </p>
-
-              <p className="text-sm text-white font-medium">
-                {dropoffAddress}
-              </p>
-            </div>
+            <p className="text-xs text-slate-500 text-center">
+              O endereço da entrega será exibido após confirmar a retirada na loja.
+            </p>
           </div>
 
           <div className="grid grid-cols-2 gap-3">
@@ -3546,77 +3738,69 @@ function DeliveryCard({
   ] ||
     "text-slate-300 bg-slate-800";
 
+  const normalizedStatus = String(d.status || "").toLowerCase();
+
+  // REGRA DA CORRIDA:
+  // pending/accepted -> somente retirada
+  // picked_up/in_progress/in_transit -> somente entrega
+  const isPickupStage =
+    ["pending", "accepted"].includes(normalizedStatus);
+
+  const isDropoffStage =
+    ["picked_up", "in_progress", "in_transit"].includes(normalizedStatus);
+
   const openGoogleMapsRoute = () => {
     const pickup = String(
-      d.pickup_address || ""
+      d.pickup_address ||
+        d.store_address ||
+        d.pickup?.address ||
+        d.store?.address ||
+        ""
     ).trim();
 
     const dropoff = String(
       d.dropoff_address || ""
     ).trim();
 
-    if (!pickup || !dropoff) {
+    const destination =
+      isDropoffStage ? dropoff : pickup;
+
+    if (!destination) {
       toast.error(
-        "Endereço de retirada ou entrega não informado."
+        isDropoffStage
+          ? "Endereço de entrega não informado."
+          : "Endereço da loja não informado."
       );
       return;
     }
 
-    const openRoute = (origin) => {
-      const params =
-        new URLSearchParams({
-          api: "1",
-          origin,
-          destination: dropoff,
-          waypoints: pickup,
-          travelmode: "driving",
-          dir_action: "navigate",
-        });
+    const params = new URLSearchParams({
+      api: "1",
+      destination,
+      travelmode: "driving",
+      dir_action: "navigate",
+    });
 
-      window.open(
-        `https://www.google.com/maps/dir/?${params.toString()}`,
-        "_blank",
-        "noopener,noreferrer"
+    const mapsUrl =
+      `https://www.google.com/maps/dir/?${params.toString()}`;
+
+    try {
+      const opened = window.open(
+        mapsUrl,
+        "_blank"
       );
-    };
 
-    if (
-      !navigator.geolocation
-    ) {
-      toast.error(
-        "Seu dispositivo não oferece localização. Abrindo a rota a partir da retirada."
-      );
-      openRoute(pickup);
-      return;
-    }
-
-    toast.info(
-      "Obtendo sua localização atual..."
-    );
-
-    navigator.geolocation.getCurrentPosition(
-      (position) => {
-        const origin =
-          `${position.coords.latitude},${position.coords.longitude}`;
-
-        openRoute(origin);
-      },
-      (error) => {
-        console.warn(
-          "[GiroExpress] Não foi possível obter a localização atual:",
-          error
-        );
-
-        toast.error(
-          "Não foi possível obter sua localização. Ative a permissão de localização e tente novamente."
-        );
-      },
-      {
-        enableHighAccuracy: true,
-        timeout: 12000,
-        maximumAge: 30000,
+      if (!opened) {
+        window.location.href = mapsUrl;
       }
-    );
+    } catch (error) {
+      console.warn(
+        "[GiroExpress] Erro ao abrir Google Maps:",
+        error
+      );
+
+      window.location.href = mapsUrl;
+    }
   };
 
   const orderCode =
@@ -3729,41 +3913,45 @@ function DeliveryCard({
       </div>
 
       <div className="space-y-2 text-sm">
-        <div className="flex items-start space-x-2">
-          <MapPin className="w-4 h-4 text-rose-400 mt-0.5 shrink-0" />
+        {isPickupStage && (
+          <div className="flex items-start space-x-2">
+            <MapPin className="w-4 h-4 text-rose-400 mt-0.5 shrink-0" />
 
-          <div>
-            <p className="text-xs text-slate-400">
-              Retirada:
-            </p>
+            <div>
+              <p className="text-xs text-slate-400">
+                Retirada:
+              </p>
 
-            <p className="text-xs font-semibold text-white">
-              {storeName}
-            </p>
+              <p className="text-xs font-semibold text-white">
+                {storeName}
+              </p>
 
-            <p className="font-medium text-white">
-              {pickupAddress}
-            </p>
+              <p className="font-medium text-white">
+                {pickupAddress}
+              </p>
+            </div>
           </div>
-        </div>
+        )}
 
-        <div className="flex items-start space-x-2">
-          <MapPin className="w-4 h-4 text-emerald-400 mt-0.5 shrink-0" />
+        {isDropoffStage && (
+          <div className="flex items-start space-x-2">
+            <MapPin className="w-4 h-4 text-emerald-400 mt-0.5 shrink-0" />
 
-          <div>
-            <p className="text-xs text-slate-400">
-              Entrega:
-            </p>
+            <div>
+              <p className="text-xs text-slate-400">
+                Entrega:
+              </p>
 
-            <p className="text-xs font-semibold text-white">
-              {clientName}
-            </p>
+              <p className="text-xs font-semibold text-white">
+                {clientName}
+              </p>
 
-            <p className="font-medium text-white">
-              {dropoffAddress}
-            </p>
+              <p className="font-medium text-white">
+                {dropoffAddress}
+              </p>
+            </div>
           </div>
-        </div>
+        )}
       </div>
 
       <div className="bg-slate-900 p-3 rounded-xl flex items-center justify-between text-xs">
@@ -3851,7 +4039,7 @@ function DeliveryCard({
             }
             className="flex-1 bg-blue-600 hover:bg-blue-500 text-white font-bold py-2.5 rounded-xl text-xs"
           >
-            Iniciar Rota
+            Pedido retirado
           </button>
         )}
 
@@ -3878,8 +4066,10 @@ function DeliveryCard({
           [
             "accepted",
             "in_transit",
+            "picked_up",
+            "in_progress",
           ].includes(
-            d.status
+            normalizedStatus
           ) && (
             <button
               type="button"
@@ -3895,7 +4085,9 @@ function DeliveryCard({
               <ExternalLink className="w-3.5 h-3.5" />
 
               <span>
-                Google Maps
+                {isDropoffStage
+                  ? "Ir para entrega"
+                  : "Ir para loja"}
               </span>
             </button>
           )}
