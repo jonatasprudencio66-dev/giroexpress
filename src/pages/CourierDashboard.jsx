@@ -341,6 +341,9 @@ export default function CourierDashboard() {
   const [loading, setLoading] =
     useState(true);
 
+  const [acceptingId, setAcceptingId] = useState(null);
+  const acceptingRef = useRef(new Set());
+
   const [online, setOnline] =
     useState(user?.online ?? false);
 
@@ -1476,7 +1479,8 @@ export default function CourierDashboard() {
    * ============================================================ */
 
   const load = useCallback(
-    async () => {
+    async (options = {}) => {
+      const includeBilling = options.includeBilling !== false;
       if (!userId) {
         return;
       }
@@ -1517,69 +1521,10 @@ export default function CourierDashboard() {
             ? data
             : [];
 
-        try {
-          const billingResponse =
-            await api.get(
-              "/billing/courier/current"
-            );
+        // Atualiza a tela antes de consultar informações financeiras.
+        setDeliveries(nextDeliveries);
+        deliveriesRef.current = nextDeliveries;
 
-          if (
-            mountedRef.current &&
-            billingResponse?.data?.ok
-          ) {
-            setBillingCycle(
-              billingResponse.data
-            );
-          }
-        } catch (billingError) {
-          console.warn(
-            "[GiroExpress] Não foi possível carregar o ciclo financeiro:",
-            billingError
-          );
-        }
-
-        try {
-          const paymentsResponse =
-            await api.get(
-              "/billing/courier/payments"
-            );
-
-          if (
-            mountedRef.current &&
-            paymentsResponse?.data?.ok
-          ) {
-            setConfirmedPayments(
-              Array.isArray(
-                paymentsResponse.data.payments
-              )
-                ? paymentsResponse.data.payments
-                : []
-            );
-          }
-        } catch (paymentsError) {
-          console.warn(
-            "[GiroExpress] Não foi possível carregar os pagamentos confirmados:",
-            paymentsError
-          );
-        }
-
-        try {
-          const cyclesResponse =
-            await api.get("/billing/courier/cycles");
-
-          if (mountedRef.current) {
-            setBillingHistory(
-              Array.isArray(cyclesResponse?.data?.cycles)
-                ? cyclesResponse.data.cycles
-                : []
-            );
-          }
-        } catch (cyclesError) {
-          console.warn(
-            "[GiroExpress] Não foi possível carregar os ciclos do entregador:",
-            cyclesError
-          );
-        }
 
         const pending =
           nextDeliveries.filter(
@@ -1742,9 +1687,74 @@ export default function CourierDashboard() {
           lastDeliverySignature.current =
             nextSignature;
 
-          setDeliveries(
-            nextDeliveries
+          // Lista já atualizada imediatamente após a resposta da API.
+        }
+
+        if (includeBilling) {
+        try {
+          const billingResponse =
+            await api.get(
+              "/billing/courier/current"
+            );
+
+          if (
+            mountedRef.current &&
+            billingResponse?.data?.ok
+          ) {
+            setBillingCycle(
+              billingResponse.data
+            );
+          }
+        } catch (billingError) {
+          console.warn(
+            "[GiroExpress] Não foi possível carregar o ciclo financeiro:",
+            billingError
           );
+        }
+
+        try {
+          const paymentsResponse =
+            await api.get(
+              "/billing/courier/payments"
+            );
+
+          if (
+            mountedRef.current &&
+            paymentsResponse?.data?.ok
+          ) {
+            setConfirmedPayments(
+              Array.isArray(
+                paymentsResponse.data.payments
+              )
+                ? paymentsResponse.data.payments
+                : []
+            );
+          }
+        } catch (paymentsError) {
+          console.warn(
+            "[GiroExpress] Não foi possível carregar os pagamentos confirmados:",
+            paymentsError
+          );
+        }
+
+        try {
+          const cyclesResponse =
+            await api.get("/billing/courier/cycles");
+
+          if (mountedRef.current) {
+            setBillingHistory(
+              Array.isArray(cyclesResponse?.data?.cycles)
+                ? cyclesResponse.data.cycles
+                : []
+            );
+          }
+        } catch (cyclesError) {
+          console.warn(
+            "[GiroExpress] Não foi possível carregar os ciclos do entregador:",
+            cyclesError
+          );
+        }
+
         }
       } catch (error) {
         if (
@@ -2364,46 +2374,52 @@ export default function CourierDashboard() {
    * AÇÕES DA CORRIDA
    * ============================================================ */
 
-  const act =
-    async (
-      id,
-      action
-    ) => {
-      try {
-        if (
-          action ===
-            "accept" &&
-          activeCount >=
-            MAX_ACTIVE_DELIVERIES
-        ) {
-          toast.error(
-            `Você já está com ${MAX_ACTIVE_DELIVERIES} pedidos ativos. Conclua um pedido para aceitar outro.`
-          );
+  const act = async (id, action) => {
+    const normalizedId = String(id);
+    const isAccept = action === "accept";
+    if (acceptingRef.current.has(normalizedId)) return;
 
-          return;
-        }
+    if (isAccept && activeCount >= MAX_ACTIVE_DELIVERIES) {
+      toast.error(`Você já está com ${MAX_ACTIVE_DELIVERIES} pedidos ativos.`);
+      return;
+    }
 
-        await api.post(
-          `/deliveries/${id}/${action}`
-        );
+    if (isAccept) {
+      acceptingRef.current.add(normalizedId);
+      setAcceptingId(normalizedId);
+    }
 
-        toast.success(
-          action ===
-            "accept"
-            ? "Corrida aceita!"
-            : action ===
-                "complete"
-            ? "Entrega concluída!"
-            : "Ok"
-        );
+    const started = performance.now();
+    try {
+      const { data } = await api.post(`/deliveries/${id}/${action}`);
+      console.info(`[GiroExpress] ${action}: API ${(performance.now() - started).toFixed(0)} ms`);
 
-        await load();
-      } catch (error) {
-        toast.error(
-          apiError(error)
-        );
+      // A corrida só muda de status após confirmação do backend.
+      if (isAccept && mountedRef.current) {
+        const acceptedDelivery = data?.delivery;
+        setDeliveries((previous) => previous.map((delivery) =>
+          String(delivery.id || delivery._id) === normalizedId
+            ? { ...delivery, ...(acceptedDelivery || {}), status: "accepted",
+                courier_id: String(userId), courier_name: user?.name || "Entregador" }
+            : delivery
+        ));
+        // Não depender de consultas financeiras para exibir a corrida aceita.
+        lastDeliverySignature.current = "";
       }
-    };
+
+      toast.success(isAccept ? "Corrida aceita!" : action === "complete" ? "Entrega concluída!" : "Ok");
+      // Sincroniza as corridas, sem bloquear a interface com faturamento.
+      if (!isAccept) void load({ includeBilling: false });
+    } catch (error) {
+      toast.error(apiError(error));
+      // Em caso de erro, não presumir que a corrida foi aceita.
+    } finally {
+      if (isAccept) {
+        acceptingRef.current.delete(normalizedId);
+        if (mountedRef.current) setAcceptingId(null);
+      }
+    }
+  };
 
   /* ============================================================
    * RENDER
@@ -2614,9 +2630,8 @@ export default function CourierDashboard() {
                       "accept"
                     )
                   }
-                  acceptDisabled={
-                    !hasAvailableSlots
-                  }
+                  acceptDisabled={!hasAvailableSlots || acceptingId === String(d.id || d._id)}
+                  accepting={acceptingId === String(d.id || d._id)}
                   onChat={() =>
                     openChat(d)
                   }
@@ -3698,6 +3713,7 @@ function DeliveryCard({
   unreadCount = 0,
   onAccept,
   acceptDisabled = false,
+  accepting = false,
   onStart,
   onComplete,
   onChat,
@@ -4021,8 +4037,8 @@ function DeliveryCard({
             <Play className="w-4 h-4 fill-current" />
 
             <span>
-              {acceptDisabled
-                ? "Limite 8 atingido"
+              {accepting ? "Aceitando..." : acceptDisabled
+                ? "Indisponível"
                 : "Aceitar"}
             </span>
           </button>
